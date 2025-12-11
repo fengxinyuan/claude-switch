@@ -152,6 +152,7 @@ class EnvManager:
         if not base_url or not token:
             return False, "配置不完整", None
 
+        # 方法1: 尝试流式请求（参考cc-switch，最准确）
         try:
             start_time = time.time()
             headers = {
@@ -160,7 +161,47 @@ class EnvManager:
                 "content-type": "application/json"
             }
 
-            # 尝试发送最小请求
+            test_url = f"{base_url.rstrip('/')}/v1/messages"
+            response = requests.post(
+                test_url,
+                headers=headers,
+                json={
+                    "model": "claude-3-5-sonnet-20241022",
+                    "max_tokens": 1,
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "stream": True
+                },
+                timeout=timeout,
+                verify=False,
+                stream=True
+            )
+
+            response_time = time.time() - start_time
+
+            if response.status_code == 200:
+                # 尝试读取第一个chunk
+                try:
+                    for _ in response.iter_content(chunk_size=1024):
+                        break
+                except:
+                    pass
+
+                balance = response.headers.get("x-api-balance", "可用")
+                response.close()
+                return True, balance, response_time
+
+        except:
+            pass
+
+        # 方法2: 尝试非流式请求（兼容性更好）
+        try:
+            start_time = time.time()
+            headers = {
+                "x-api-key": token,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
+            }
+
             test_url = f"{base_url.rstrip('/')}/v1/messages"
             response = requests.post(
                 test_url,
@@ -171,29 +212,19 @@ class EnvManager:
                     "messages": [{"role": "user", "content": "hi"}]
                 },
                 timeout=timeout,
-                verify=False  # 某些API可能有SSL证书问题
+                verify=False
             )
 
             response_time = time.time() - start_time
 
-            # 200表示成功，400可能是参数问题但API可用，401是认证问题但API在线
+            # 200表示完全成功
             if response.status_code == 200:
-                # 尝试从响应头或响应体获取余额
-                balance = response.headers.get("x-api-balance")
-                if not balance:
-                    try:
-                        data = response.json()
-                        # 某些API可能在响应中包含余额信息
-                        balance = data.get("balance", "可用")
-                    except:
-                        balance = "可用"
+                balance = response.headers.get("x-api-balance", "可用")
                 return True, balance, response_time
+            # 400/429表示API在线但有限制
             elif response.status_code in [400, 429]:
-                # 400可能是请求格式问题，但API是可用的
-                # 429是速率限制，说明API在线
-                return True, "可用(受限)", response_time
-            elif response.status_code == 401:
-                return False, "认证失败", response_time
+                return True, "可用", response_time
+            # 其他错误
             else:
                 return False, f"HTTP {response.status_code}", response_time
 
