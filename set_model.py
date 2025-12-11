@@ -138,33 +138,31 @@ class EnvManager:
             print(f"❌ 不支持的操作系统: {self.system}")
             sys.exit(1)
 
-    def test_api(self, model_name: str, timeout: int = 10) -> Tuple[bool, Optional[str], Optional[float]]:
-        """测试API连接和获取余额
-        返回: (是否可用, 余额信息, 响应时间)
+    def test_api(self, model_name: str, timeout: int = 10) -> Tuple[bool, Optional[float]]:
+        """测试API连接（参考cc-switch实现）
+        返回: (是否可用, 响应时间)
         """
         if model_name not in self.config:
-            return False, None, None
+            return False, None
 
         config = self.config[model_name]
         base_url = config.get("ANTHROPIC_BASE_URL", "")
         token = config.get("ANTHROPIC_AUTH_TOKEN", "")
 
         if not base_url or not token:
-            return False, "配置不完整", None
+            return False, None
 
-        # 方法1: 尝试流式请求（参考cc-switch，最准确）
+        # 方法1: 尝试流式请求（更快更准确）
         try:
             start_time = time.time()
-            headers = {
-                "x-api-key": token,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json"
-            }
-
             test_url = f"{base_url.rstrip('/')}/v1/messages"
             response = requests.post(
                 test_url,
-                headers=headers,
+                headers={
+                    "x-api-key": token,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                },
                 json={
                     "model": "claude-3-5-sonnet-20241022",
                     "max_tokens": 1,
@@ -177,35 +175,23 @@ class EnvManager:
             )
 
             response_time = time.time() - start_time
-
             if response.status_code == 200:
-                # 尝试读取第一个chunk
-                try:
-                    for _ in response.iter_content(chunk_size=1024):
-                        break
-                except:
-                    pass
-
-                balance = response.headers.get("x-api-balance", "可用")
                 response.close()
-                return True, balance, response_time
-
+                return True, response_time
         except:
             pass
 
-        # 方法2: 尝试非流式请求（兼容性更好）
+        # 方法2: 回退到非流式请求
         try:
             start_time = time.time()
-            headers = {
-                "x-api-key": token,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json"
-            }
-
             test_url = f"{base_url.rstrip('/')}/v1/messages"
             response = requests.post(
                 test_url,
-                headers=headers,
+                headers={
+                    "x-api-key": token,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                },
                 json={
                     "model": "claude-3-5-sonnet-20241022",
                     "max_tokens": 1,
@@ -216,19 +202,15 @@ class EnvManager:
             )
 
             response_time = time.time() - start_time
-
-            # 只要收到响应就认为API在线（参考cc-switch逻辑）
-            balance = response.headers.get("x-api-balance", "可用")
-            return True, balance, response_time
+            # 只要收到响应就认为API在线
+            return True, response_time
 
         except requests.exceptions.Timeout:
-            return False, "超时", None
+            return False, None
         except requests.exceptions.ConnectionError:
-            return False, "连接失败", None
-        except requests.exceptions.SSLError:
-            return False, "SSL错误", None
-        except Exception as e:
-            return False, str(e)[:30], None
+            return False, None
+        except Exception:
+            return False, None
 
     def get_current_model(self) -> Optional[str]:
         """获取当前使用的模型"""
@@ -250,15 +232,14 @@ class EnvManager:
         print("📋 可用模型列表：")
 
         if show_status:
-            print(f"{'序号':<4} {'模型名':<15} {'状态':<8} {'余额':<15} {'响应时间':<10}")
-            print("-" * 60)
+            print(f"{'序号':<4} {'模型名':<15} {'状态':<8} {'响应时间':<10}")
+            print("-" * 45)
 
             for i, model in enumerate(self.config.keys(), 1):
-                status, balance, resp_time = self.test_api(model)
+                status, resp_time = self.test_api(model)
                 status_icon = "✅" if status else "❌"
-                balance_str = balance if balance else "N/A"
                 time_str = f"{resp_time:.2f}s" if resp_time else "N/A"
-                print(f"{i:<4} {model:<15} {status_icon:<8} {balance_str:<15} {time_str:<10}")
+                print(f"{i:<4} {model:<15} {status_icon:<8} {time_str:<10}")
         else:
             for i, model in enumerate(self.config.keys(), 1):
                 print(f"  {i}. {model}")
@@ -303,19 +284,18 @@ class EnvManager:
                 print(f"📍 当前模型: 未设置")
 
             print("\n正在检测API状态...")
-            print(f"{'序号':<4} {'模型名':<15} {'状态':<8} {'余额':<15} {'响应时间':<10}")
-            print("-" * 70)
+            print(f"{'序号':<4} {'模型名':<15} {'状态':<8} {'响应时间':<10}")
+            print("-" * 45)
 
             models = list(self.config.keys())
             for i, model in enumerate(models, 1):
-                status, balance, resp_time = self.test_api(model)
+                status, resp_time = self.test_api(model)
                 status_icon = "✅" if status else "❌"
-                balance_str = balance if balance else "N/A"
                 time_str = f"{resp_time:.2f}s" if resp_time else "N/A"
 
                 # 标记当前使用的模型
                 marker = " ← 当前" if model == current else ""
-                print(f"{i:<4} {model:<15} {status_icon:<8} {balance_str:<15} {time_str:<10}{marker}")
+                print(f"{i:<4} {model:<15} {status_icon:<8} {time_str:<10}{marker}")
 
             print("\n" + "-" * 70)
             print("输入序号切换模型，或输入 'q' 退出")
@@ -434,15 +414,14 @@ def main():
             print(f"📍 当前模型: {current}")
             print(f"\n🔍 正在检测状态...")
             # 测试当前模型状态
-            status, balance, resp_time = manager.test_api(current)
+            status, resp_time = manager.test_api(current)
             if status:
                 print(f"✅ 状态: 可用")
-                print(f"💰 余额: {balance}")
                 print(f"⚡ 响应时间: {resp_time:.2f}s")
             else:
-                print(f"❌ 状态: 不可用 ({balance})")
+                print(f"❌ 状态: 不可用")
                 print(f"\n💡 正在检测其他可用模型...")
-                print("=" * 70)
+                print("=" * 45)
                 manager.list_models(show_status=True)
         else:
             print("📍 当前模型: 未设置")
