@@ -217,16 +217,9 @@ class EnvManager:
 
             response_time = time.time() - start_time
 
-            # 200表示完全成功
-            if response.status_code == 200:
-                balance = response.headers.get("x-api-balance", "可用")
-                return True, balance, response_time
-            # 400/429表示API在线但有限制
-            elif response.status_code in [400, 429]:
-                return True, "可用", response_time
-            # 其他错误
-            else:
-                return False, f"HTTP {response.status_code}", response_time
+            # 只要收到响应就认为API在线（参考cc-switch逻辑）
+            balance = response.headers.get("x-api-balance", "可用")
+            return True, balance, response_time
 
         except requests.exceptions.Timeout:
             return False, "超时", None
