@@ -295,44 +295,48 @@ class EnvManager:
 
     def interactive_mode(self):
         """交互式选择模型"""
+        print("\n" + "=" * 70)
+        print("🎯 Claude 模型切换工具 - 交互模式")
+        print("=" * 70)
+
+        # 显示当前模型
+        current = self.get_current_model()
+        if current:
+            print(f"📍 当前模型: {current}")
+        else:
+            print(f"📍 当前模型: 未设置")
+
+        print()
+        # 使用并发测试
+        models = list(self.config.keys())
+        results = self.test_apis_concurrent(models, show_progress=True)
+
+        print(f"\n{'序号':<4} {'模型名':<15} {'状态':<8} {'响应时间':<10}")
+        print("-" * 45)
+
+        for i, model in enumerate(models, 1):
+            status, resp_time = results.get(model, (False, None))
+            status_icon = "✅" if status else "❌"
+            time_str = f"{resp_time:.2f}s" if resp_time else "N/A"
+
+            # 标记当前使用的模型
+            marker = " ← 当前" if model == current else ""
+            print(f"{i:<4} {model:<15} {status_icon:<8} {time_str:<10}{marker}")
+
+        print("\n" + "-" * 70)
+        print("输入序号切换模型，输入 'r' 刷新状态，或输入 'q' 退出")
+
         while True:
-            print("\n" + "=" * 70)
-            print("🎯 Claude 模型切换工具 - 交互模式")
-            print("=" * 70)
-
-            # 显示当前模型
-            current = self.get_current_model()
-            if current:
-                print(f"📍 当前模型: {current}")
-            else:
-                print(f"📍 当前模型: 未设置")
-
-            print()
-            # 使用并发测试
-            models = list(self.config.keys())
-            results = self.test_apis_concurrent(models, show_progress=True)
-
-            print(f"\n{'序号':<4} {'模型名':<15} {'状态':<8} {'响应时间':<10}")
-            print("-" * 45)
-
-            for i, model in enumerate(models, 1):
-                status, resp_time = results.get(model, (False, None))
-                status_icon = "✅" if status else "❌"
-                time_str = f"{resp_time:.2f}s" if resp_time else "N/A"
-
-                # 标记当前使用的模型
-                marker = " ← 当前" if model == current else ""
-                print(f"{i:<4} {model:<15} {status_icon:<8} {time_str:<10}{marker}")
-
-            print("\n" + "-" * 70)
-            print("输入序号切换模型，或输入 'q' 退出")
-
             try:
                 choice = input("\n请选择: ").strip()
 
                 if choice.lower() == 'q':
                     print("👋 退出")
                     break
+
+                if choice.lower() == 'r':
+                    # 刷新状态，递归调用
+                    return self.interactive_mode()
 
                 if not choice.isdigit():
                     print("❌ 请输入有效的序号")
@@ -341,7 +345,8 @@ class EnvManager:
                 index = int(choice) - 1
                 if 0 <= index < len(models):
                     self.switch_model(models[index])
-                    input("\n按回车继续...")
+                    print("\n✅ 切换完成！")
+                    break  # 切换成功后直接退出
                 else:
                     print("❌ 序号超出范围")
 
