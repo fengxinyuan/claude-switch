@@ -8,10 +8,31 @@ import time
 import requests
 import urllib3
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+import shutil
 
 # 禁用SSL警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+def mask_sensitive_info(value: str, show_chars: int = 8) -> str:
+    """脱敏显示敏感信息"""
+    if not value or len(value) <= show_chars:
+        return "*" * len(value)
+    return value[:show_chars] + "*" * (len(value) - show_chars)
+
+
+def print_progress_bar(current: int, total: int, prefix: str = "", length: int = 30):
+    """打印进度条"""
+    percent = current / total
+    filled = int(length * percent)
+    bar = "█" * filled + "░" * (length - filled)
+    sys.stdout.write(f"\r{prefix} [{bar}] {current}/{total} ({percent*100:.0f}%)")
+    sys.stdout.flush()
+    if current == total:
+        print()  # 完成后换行
 
 
 class EnvManager:
@@ -232,11 +253,14 @@ class EnvManager:
         print("📋 可用模型列表：")
 
         if show_status:
-            print(f"{'序号':<4} {'模型名':<15} {'状态':<8} {'响应时间':<10}")
+            # 使用并发测试
+            results = self.test_apis_concurrent(show_progress=True)
+
+            print(f"\n{'序号':<4} {'模型名':<15} {'状态':<8} {'响应时间':<10}")
             print("-" * 45)
 
             for i, model in enumerate(self.config.keys(), 1):
-                status, resp_time = self.test_api(model)
+                status, resp_time = results.get(model, (False, None))
                 status_icon = "✅" if status else "❌"
                 time_str = f"{resp_time:.2f}s" if resp_time else "N/A"
                 print(f"{i:<4} {model:<15} {status_icon:<8} {time_str:<10}")
@@ -283,13 +307,16 @@ class EnvManager:
             else:
                 print(f"📍 当前模型: 未设置")
 
-            print("\n正在检测API状态...")
-            print(f"{'序号':<4} {'模型名':<15} {'状态':<8} {'响应时间':<10}")
+            print()
+            # 使用并发测试
+            models = list(self.config.keys())
+            results = self.test_apis_concurrent(models, show_progress=True)
+
+            print(f"\n{'序号':<4} {'模型名':<15} {'状态':<8} {'响应时间':<10}")
             print("-" * 45)
 
-            models = list(self.config.keys())
             for i, model in enumerate(models, 1):
-                status, resp_time = self.test_api(model)
+                status, resp_time = results.get(model, (False, None))
                 status_icon = "✅" if status else "❌"
                 time_str = f"{resp_time:.2f}s" if resp_time else "N/A"
 
@@ -386,6 +413,72 @@ class EnvManager:
             print(f"❌ 保存配置失败: {e}")
             sys.exit(1)
 
+    def backup_config(self, backup_dir: str = "backups") -> str:
+        """备份配置文件"""
+        try:
+            # 创建备份目录
+            Path(backup_dir).mkdir(exist_ok=True)
+
+            # 生成备份文件名（带时间戳）
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_file = f"{backup_dir}/model_config_{timestamp}.json"
+
+            # 复制配置文件
+            shutil.copy2(self.config_path, backup_file)
+            return backup_file
+        except Exception as e:
+            print(f"❌ 备份配置失败: {e}")
+            return ""
+
+    def restore_config(self, backup_file: str):
+        """从备份恢复配置"""
+        try:
+            if not os.path.exists(backup_file):
+                print(f"❌ 备份文件不存在: {backup_file}")
+                return False
+
+            shutil.copy2(backup_file, self.config_path)
+            self.config = self._load_config()
+            print(f"✅ 配置已从备份恢复: {backup_file}")
+            return True
+        except Exception as e:
+            print(f"❌ 恢复配置失败: {e}")
+            return False
+
+    def test_apis_concurrent(self, models: List[str] = None, show_progress: bool = True) -> Dict[str, Tuple[bool, Optional[float]]]:
+        """并发测试多个API"""
+        if models is None:
+            models = list(self.config.keys())
+
+        results = {}
+        completed = 0
+        total = len(models)
+
+        if show_progress:
+            print_progress_bar(0, total, prefix="🔍 测试进度")
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            # 提交所有任务
+            future_to_model = {
+                executor.submit(self.test_api, model): model
+                for model in models
+            }
+
+            # 收集结果
+            for future in as_completed(future_to_model):
+                model = future_to_model[future]
+                try:
+                    status, resp_time = future.result()
+                    results[model] = (status, resp_time)
+                except Exception as e:
+                    results[model] = (False, None)
+
+                completed += 1
+                if show_progress:
+                    print_progress_bar(completed, total, prefix="🔍 测试进度")
+
+        return results
+
 
 def main():
     manager = EnvManager()
@@ -480,6 +573,33 @@ def main():
         manager.remove_model(sys.argv[2])
         sys.exit(0)
 
+    # 备份配置
+    if command in ["backup", "bak", "--backup", "-b"]:
+        backup_file = manager.backup_config()
+        if backup_file:
+            print(f"✅ 配置已备份至: {backup_file}")
+        sys.exit(0)
+
+    # 恢复配置
+    if command in ["restore", "res", "--restore"]:
+        if len(sys.argv) < 3:
+            print("💡 用法: python set_model.py restore <备份文件路径>")
+            print("提示: 备份文件位于 backups/ 目录")
+            sys.exit(1)
+        manager.restore_config(sys.argv[2])
+        sys.exit(0)
+
+    # 显示配置信息（脱敏）
+    if command in ["show", "info", "--show", "-i"]:
+        print("📋 当前配置信息：\n")
+        for model_name, config in manager.config.items():
+            print(f"模型: {model_name}")
+            print(f"  BASE_URL: {config.get('ANTHROPIC_BASE_URL', 'N/A')}")
+            token = config.get('ANTHROPIC_AUTH_TOKEN', '')
+            print(f"  TOKEN: {mask_sensitive_info(token, 10)}")
+            print()
+        sys.exit(0)
+
     # 帮助信息
     if command in ["help", "--help", "-h"]:
         print("🎯 Claude 模型切换工具")
@@ -493,16 +613,21 @@ def main():
         print("  python set_model.py update <名称> --url <URL>    # 更新URL")
         print("  python set_model.py update <名称> --token <TOKEN> # 更新TOKEN")
         print("  python set_model.py remove <模型名>              # 删除模型")
+        print("  python set_model.py show               # 显示配置信息（脱敏）")
+        print("  python set_model.py backup             # 备份配置文件")
+        print("  python set_model.py restore <文件>     # 从备份恢复配置")
         print("\n其他命令:")
         print("  python set_model.py list               # 列出所有模型（不测试）")
         print("  python set_model.py interactive        # 交互模式")
         print("\n命令别名:")
         print("  list: ls, -l        status: st, -s      current: cur, -c")
         print("  add: -a             update: up, -u      remove: rm, -r")
-        print("  interactive: i, -i")
+        print("  interactive: i, -i  backup: bak, -b     restore: res")
+        print("  show: info")
         print("\n💡 提示:")
         print("  - current命令会自动检测当前模型，如果不可用会显示所有模型状态")
         print("  - 交互模式会实时显示所有API的状态和响应速度")
+        print("  - status命令使用并发测试，快速获取所有API状态")
         sys.exit(0)
 
     # 默认：切换模型
