@@ -159,8 +159,8 @@ class EnvManager:
             print(f"❌ 不支持的操作系统: {self.system}")
             sys.exit(1)
 
-    def test_api(self, model_name: str, timeout: int = 10) -> Tuple[bool, Optional[float]]:
-        """测试API连接（参考cc-switch实现）
+    def test_api(self, model_name: str, timeout: int = 5) -> Tuple[bool, Optional[float]]:
+        """测试API连接（快速版本）
         返回: (是否可用, 响应时间)
         """
         if model_name not in self.config:
@@ -173,7 +173,7 @@ class EnvManager:
         if not base_url or not token:
             return False, None
 
-        # 方法1: 尝试流式请求（更快更准确）
+        # 使用流式请求快速测试连接
         try:
             start_time = time.time()
             test_url = f"{base_url.rstrip('/')}/v1/messages"
@@ -187,7 +187,7 @@ class EnvManager:
                 json={
                     "model": "claude-3-5-sonnet-20241022",
                     "max_tokens": 1,
-                    "messages": [{"role": "user", "content": "hi"}],
+                    "messages": [{"role": "user", "content": "1"}],
                     "stream": True
                 },
                 timeout=timeout,
@@ -196,34 +196,8 @@ class EnvManager:
             )
 
             response_time = time.time() - start_time
-            if response.status_code == 200:
-                response.close()
-                return True, response_time
-        except:
-            pass
-
-        # 方法2: 回退到非流式请求
-        try:
-            start_time = time.time()
-            test_url = f"{base_url.rstrip('/')}/v1/messages"
-            response = requests.post(
-                test_url,
-                headers={
-                    "x-api-key": token,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json"
-                },
-                json={
-                    "model": "claude-3-5-sonnet-20241022",
-                    "max_tokens": 1,
-                    "messages": [{"role": "user", "content": "hi"}]
-                },
-                timeout=timeout,
-                verify=False
-            )
-
-            response_time = time.time() - start_time
             # 只要收到响应就认为API在线
+            response.close()
             return True, response_time
 
         except requests.exceptions.Timeout:
@@ -462,7 +436,7 @@ class EnvManager:
         if show_progress:
             print_progress_bar(0, total, prefix="🔍 测试进度")
 
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=10) as executor:
             # 提交所有任务
             future_to_model = {
                 executor.submit(self.test_api, model): model
