@@ -14,13 +14,22 @@
 - ✅ **配置备份**: 自动备份和恢复配置文件
 - ✅ **敏感信息保护**: Token 信息自动脱敏显示
 - ✅ **智能提示**: 当前模型不可用时自动显示其他选项
+- ✅ **配置文件加密**: 使用 PBKDF2 + Fernet 算法加密配置
+- ✅ **API 使用统计**: 记录切换次数、使用频率等统计信息
+- ✅ **自定义超时**: 支持自定义 API 测试超时时间
+- ✅ **健康监控**: 自动检测 API 健康状态并切换到可用 API
+- ✅ **配置导入导出**: 支持配置的跨设备迁移和分享
 
 ## 快速开始
 
 ### 安装依赖
 
 ```bash
+# 基础依赖
 pip install requests urllib3
+
+# 可选：加密功能需要
+pip install cryptography
 ```
 
 ### 基本用法
@@ -30,13 +39,16 @@ pip install requests urllib3
 python set_model.py
 
 # 快速切换到指定模型
-python set_model.py 哈吉米
+python set_model.py Gemai
 
 # 查看当前模型状态（如果不可用会自动显示所有模型）
 python set_model.py current
 
 # 查看所有模型状态
 python set_model.py status
+
+# 自动检测并切换到最快的可用 API
+python set_model.py auto
 ```
 
 ## 命令详解
@@ -46,7 +58,7 @@ python set_model.py status
 | 命令 | 说明 | 示例 |
 |------|------|------|
 | `python set_model.py` | 启动交互模式 | - |
-| `python set_model.py <模型名>` | 快速切换模型 | `python set_model.py 哈吉米` |
+| `python set_model.py <模型名>` | 快速切换模型 | `python set_model.py Gemai` |
 | `python set_model.py current` | 查看当前模型状态 | `python set_model.py cur` |
 | `python set_model.py status` | 查看所有模型状态 | `python set_model.py st` |
 
@@ -55,27 +67,62 @@ python set_model.py status
 | 命令 | 说明 | 示例 |
 |------|------|------|
 | `add <名称> <URL> [TOKEN]` | 添加新模型 | `python set_model.py add MyAPI https://api.example.com sk-xxx` |
-| `update <名称> --url <URL>` | 更新 API 地址 | `python set_model.py update 哈吉米 --url https://new-url.com` |
-| `update <名称> --token <TOKEN>` | 更新 API Token | `python set_model.py update 哈吉米 --token sk-new-token` |
+| `update <名称> --url <URL>` | 更新 API 地址 | `python set_model.py update Gemai --url https://new-url.com` |
+| `update <名称> --token <TOKEN>` | 更新 API Token | `python set_model.py update Gemai --token sk-new-token` |
 | `remove <模型名>` | 删除模型配置 | `python set_model.py remove MyAPI` |
 | `show` | 显示配置信息（脱敏） | `python set_model.py show` |
 | `backup` | 备份配置文件 | `python set_model.py backup` |
 | `restore <文件>` | 从备份恢复配置 | `python set_model.py restore backups/model_config_20240101_120000.json` |
 
-### 其他命令
+### 导入导出命令
 
-| 命令 | 说明 | 别名 |
+| 命令 | 说明 | 示例 |
 |------|------|------|
-| `list` | 列出所有模型（不测试） | `ls`, `-l` |
-| `status` | 显示所有模型状态 | `st`, `-s` |
-| `current` | 显示当前模型 | `cur`, `-c` |
-| `interactive` | 交互模式 | `i`, `-i` |
-| `add` | 添加模型 | `-a` |
-| `update` | 更新模型 | `up`, `-u` |
-| `remove` | 删除模型 | `rm`, `-r` |
-| `show` | 显示配置信息 | `info` |
-| `backup` | 备份配置 | `bak`, `-b` |
-| `restore` | 恢复配置 | `res` |
+| `export <文件> [--with-tokens]` | 导出配置 | `python set_model.py export config.json` |
+| `import <文件> [--merge]` | 导入配置 | `python set_model.py import config.json --merge` |
+
+### 统计命令
+
+| 命令 | 说明 | 示例 |
+|------|------|------|
+| `stats` | 查看使用统计 | `python set_model.py stats` |
+| `reset-stats` | 重置统计数据 | `python set_model.py reset-stats` |
+
+### 健康监控命令
+
+| 命令 | 说明 | 示例 |
+|------|------|------|
+| `health` | 查看所有 API 健康状态 | `python set_model.py health` |
+| `auto` | 自动检查并切换到可用 API | `python set_model.py auto` |
+
+### 安全命令
+
+| 命令 | 说明 | 示例 |
+|------|------|------|
+| `encrypt` | 加密配置文件 | `python set_model.py encrypt` |
+| `decrypt` | 解密配置文件 | `python set_model.py decrypt` |
+
+### 全局参数
+
+| 参数 | 说明 | 示例 |
+|------|------|------|
+| `--timeout, -t <秒>` | 设置 API 测试超时时间 | `python set_model.py status -t 10` |
+
+### 命令别名
+
+| 命令 | 别名 |
+|------|------|
+| `list` | `ls`, `-l` |
+| `status` | `st`, `-s` |
+| `current` | `cur`, `-c` |
+| `interactive` | `i`, `-i` |
+| `add` | `-a` |
+| `update` | `up`, `-u` |
+| `remove` | `rm`, `-r` |
+| `show` | `info` |
+| `backup` | `bak`, `-b` |
+| `restore` | `res` |
+| `auto` | `auto-switch` |
 
 ## 使用场景
 
@@ -105,7 +152,7 @@ python set_model.py status
 序号   模型名             状态       响应时间
 ---------------------------------------------
 1    88Code          ✅        1.15s
-2    AnyRouter       ❌        N/A
+2    AnyRouter       ✅        0.56s
 3    FoxCode         ✅        0.66s
 4    Privnode        ✅        0.89s
 5    Ohmygpt         ✅        1.23s
@@ -126,7 +173,24 @@ python set_model.py
 
 直接输入序号即可切换。
 
-### 场景 4: 配置管理
+### 场景 4: 自动故障转移
+
+```bash
+# 自动检测当前 API，如果不可用则切换到最快的可用 API
+python set_model.py auto
+```
+
+输出示例：
+```
+⚠️  当前模型 'Gemai' 不可用
+🔍 正在查找可用的替代API...
+🔍 测试进度 [██████████████████████████████] 6/6 (100%)
+
+✅ 找到最佳替代: AnyRouter (响应时间: 0.52s)
+🔄 正在自动切换...
+```
+
+### 场景 5: 配置管理
 
 ```bash
 # 显示当前配置（Token 自动脱敏）
@@ -136,16 +200,16 @@ python set_model.py show
 python set_model.py add NewAPI https://api.new.com sk-token123
 
 # 更新现有 API 的地址
-python set_model.py update 哈吉米 --url https://new-url.com
+python set_model.py update Gemai --url https://new-url.com
 
 # 同时更新地址和 Token
-python set_model.py update 哈吉米 --url https://new-url.com --token sk-new-token
+python set_model.py update Gemai --url https://new-url.com --token sk-new-token
 
 # 删除不用的 API
 python set_model.py remove OldAPI
 ```
 
-### 场景 5: 配置备份与恢复
+### 场景 6: 配置备份与恢复
 
 ```bash
 # 备份当前配置
@@ -154,6 +218,89 @@ python set_model.py backup
 
 # 从备份恢复配置
 python set_model.py restore backups/model_config_20240101_120000.json
+```
+
+### 场景 7: 配置导入导出
+
+```bash
+# 导出配置（不含 Token，安全分享）
+python set_model.py export my_config.json
+
+# 导出配置（含完整 Token）
+python set_model.py export my_config.json --with-tokens
+
+# 导入配置（覆盖模式）
+python set_model.py import shared_config.json
+
+# 导入配置（合并模式，保留现有配置）
+python set_model.py import shared_config.json --merge
+```
+
+### 场景 8: 配置加密
+
+```bash
+# 加密配置文件（需要安装 cryptography）
+python set_model.py encrypt
+# 输入密码后，原始配置文件会被删除，生成加密文件
+
+# 解密配置文件
+python set_model.py decrypt
+# 输入正确密码后恢复原始配置
+```
+
+### 场景 9: 使用统计
+
+```bash
+# 查看使用统计
+python set_model.py stats
+```
+
+输出示例：
+```
+📊 API 使用统计
+==================================================
+总切换次数: 42
+使用的模型数: 5
+最后切换: Gemai (2025-12-16 15:30:00)
+最常用模型: AnyRouter (15 次)
+
+📈 各模型使用详情:
+--------------------------------------------------
+模型名             切换次数       最后使用
+--------------------------------------------------
+AnyRouter       15         2025-12-16 14:00:00
+Gemai           12         2025-12-16 15:30:00
+FoxCode         8          2025-12-15 10:00:00
+...
+
+📅 最近 7 天使用情况:
+--------------------------------------------------
+2025-12-16: 5 次 (Gemai:3, AnyRouter:2)
+2025-12-15: 8 次 (FoxCode:5, Gemai:3)
+...
+```
+
+### 场景 10: 健康监控
+
+```bash
+# 查看所有 API 的健康状态报告
+python set_model.py health
+```
+
+输出示例：
+```
+🏥 API 健康状态报告
+============================================================
+检测时间: 2025-12-16 15:30:00
+
+模型名             状态         响应时间         上次状态
+------------------------------------------------------------
+AnyRouter       ✅ 健康       0.52s        healthy
+Gemai           ✅ 健康       0.54s        healthy
+88Code          ✅ 健康       0.62s        healthy
+FoxCode         ❌ 不可用     N/A          healthy
+------------------------------------------------------------
+总计: 5 个健康, 1 个不可用
 ```
 
 ## 配置文件
@@ -190,7 +337,7 @@ python set_model.py restore backups/model_config_20240101_120000.json
 
 使用 `setx` 命令设置用户环境变量，需要重新打开命令行窗口生效。
 
-## 优化特性
+## 高级功能
 
 ### 智能工作流
 
@@ -202,11 +349,9 @@ python set_model.py restore backups/model_config_20240101_120000.json
 ### API 测试准确性
 
 - 优先使用流式 API 测试（更快更准确）
-- 流式失败时自动回退到非流式请求
 - 只要收到响应就认为 API 在线（关注连接性而非请求成功与否）
-- 支持 400/429 等状态码（API 在线但受限）
 - 自动处理 SSL 证书问题
-- 超时时间优化（10秒）
+- 支持自定义超时时间（默认 5 秒）
 
 ### 配置管理增强
 
@@ -214,6 +359,13 @@ python set_model.py restore backups/model_config_20240101_120000.json
 - **一键恢复**: 可快速从备份恢复配置
 - **信息脱敏**: 显示配置时自动脱敏 Token 信息，保护安全
 - **配置预览**: 可查看所有配置信息而不泄露完整 Token
+- **导入导出**: 支持配置的跨设备迁移和分享
+
+### 安全功能
+
+- **配置加密**: 使用 PBKDF2 密钥派生 + Fernet 对称加密
+- **480000 次迭代**: 符合 OWASP 推荐的安全标准
+- **Token 脱敏**: 所有输出中自动隐藏敏感信息
 
 ## 常见问题
 
@@ -225,7 +377,7 @@ A: 可能的原因：
 3. 网络连接问题
 4. API 地址错误
 
-使用 `python set_model.py status` 查看详细错误信息。
+使用 `python set_model.py health` 查看详细健康状态。
 
 ### Q: 切换后环境变量没生效？
 
@@ -240,13 +392,27 @@ A:
 - 备份文件会保存到 `backups/` 目录，文件名包含时间戳
 - **从备份恢复**: `python set_model.py restore backups/model_config_YYYYMMDD_HHMMSS.json`
 
+### Q: 忘记加密密码怎么办？
+
+A: 加密密码无法找回。建议：
+1. 定期备份未加密的配置文件
+2. 使用密码管理器保存密码
+3. 如果忘记密码，需要重新配置所有 API
+
+### Q: 如何在多台设备间同步配置？
+
+A: 使用导入导出功能：
+1. 在源设备导出：`python set_model.py export config.json --with-tokens`
+2. 将文件传输到目标设备
+3. 在目标设备导入：`python set_model.py import config.json`
+
 ## 性能优化
 
 ### 并发测试性能
 
-- 使用多线程并发测试（最多 5 个并发）
+- 使用多线程并发测试（最多 10 个并发）
 - 相比串行测试，速度提升 **3-5 倍**
-- 6 个 API 的测试时间从 ~60 秒降至 ~12 秒
+- 6 个 API 的测试时间从 ~30 秒降至 ~6 秒
 
 ### 进度可视化
 
@@ -259,11 +425,14 @@ A:
 - [x] 进度条显示
 - [x] 配置文件备份与恢复
 - [x] 敏感信息脱敏显示
-- [ ] 支持配置文件加密
-- [ ] 添加 API 使用统计
-- [ ] 支持自定义测试超时时间
-- [ ] 添加 API 健康监控和自动切换
-- [ ] 支持配置文件导入导出
+- [x] 支持配置文件加密
+- [x] 添加 API 使用统计
+- [x] 支持自定义测试超时时间
+- [x] 添加 API 健康监控和自动切换
+- [x] 支持配置文件导入导出
+- [ ] Web UI 界面
+- [ ] 定时健康检查和告警
+- [ ] API 负载均衡
 
 ## 许可证
 

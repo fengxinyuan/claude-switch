@@ -1,5 +1,11 @@
 # 敏感配置文件（包含API keys）
 model_config.json
+model_config.json.enc
+
+# 统计和状态文件
+usage_stats.json
+.health_state.json
+.config_salt
 
 # 备份文件（包含敏感信息）
 backups/
@@ -28,3 +34,6 @@ Thumbs.db
 
 # 日志文件
 *.log
+
+# Shell 配置文件
+.bashrc
