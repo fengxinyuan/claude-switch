@@ -423,6 +423,74 @@ class HealthMonitor:
         print(f"总计: {healthy_count} 个健康, {unhealthy_count} 个不可用")
 
 
+class DeepLinkHandler:
+    """深度链接处理器 - 用于分享和导入配置"""
+
+    PROTOCOL = "claude-switch://"
+
+    @staticmethod
+    def generate_share_link(provider_name: str, config: dict, include_token: bool = False) -> str:
+        """生成分享链接
+
+        Args:
+            provider_name: Provider 名称
+            config: Provider 配置
+            include_token: 是否包含完整 Token
+
+        Returns:
+            分享链接字符串
+        """
+        data = {
+            "name": provider_name,
+            "base_url": config.get("ANTHROPIC_BASE_URL", "")
+        }
+
+        if include_token:
+            data["token"] = config.get("ANTHROPIC_AUTH_TOKEN", "")
+
+        # Base64 编码
+        json_str = json.dumps(data, ensure_ascii=False)
+        encoded = base64.urlsafe_b64encode(json_str.encode()).decode()
+
+        return f"{DeepLinkHandler.PROTOCOL}import?data={encoded}"
+
+    @staticmethod
+    def parse_share_link(link: str) -> dict:
+        """解析分享链接
+
+        Args:
+            link: 分享链接
+
+        Returns:
+            解析后的配置字典
+
+        Raises:
+            ValueError: 链接格式错误
+        """
+        if not link.startswith(DeepLinkHandler.PROTOCOL):
+            raise ValueError(f"无效的链接格式，应以 {DeepLinkHandler.PROTOCOL} 开头")
+
+        try:
+            # 提取 data 参数
+            if "?data=" not in link:
+                raise ValueError("链接缺少 data 参数")
+
+            data_param = link.split("?data=")[1].split("&")[0]
+
+            # Base64 解码
+            decoded = base64.urlsafe_b64decode(data_param).decode()
+            config_data = json.loads(decoded)
+
+            # 验证必需字段
+            if "name" not in config_data or "base_url" not in config_data:
+                raise ValueError("链接数据不完整，缺少必需字段")
+
+            return config_data
+
+        except (IndexError, json.JSONDecodeError, Exception) as e:
+            raise ValueError(f"链接解析失败: {e}")
+
+
 class EnvManager:
     """环境变量管理器"""
 
@@ -551,8 +619,14 @@ class EnvManager:
             print(f"❌ 不支持的操作系统: {self.system}")
             sys.exit(1)
 
-    def test_api(self, model_name: str, timeout: int = None) -> Tuple[bool, Optional[float]]:
-        """测试API连接（快速版本）
+    def test_api(self, model_name: str, timeout: int = None, use_warmup: bool = True) -> Tuple[bool, Optional[float]]:
+        """测试API连接（优化版本，支持热身请求）
+
+        Args:
+            model_name: 模型名称
+            timeout: 超时时间（秒）
+            use_warmup: 是否使用热身请求（提高测速准确性）
+
         返回: (是否可用, 响应时间)
         """
         if model_name not in self.config:
@@ -568,31 +642,18 @@ class EnvManager:
         # 使用实例的超时时间或传入的超时时间
         actual_timeout = timeout or self.timeout
 
-        # 使用流式请求快速测试连接
+        # 热身请求（绕过首包惩罚，复用连接池）
+        if use_warmup:
+            try:
+                self._make_test_request(base_url, token, actual_timeout)
+            except:
+                pass  # 热身请求失败不影响后续测试
+
+        # 实际测速请求
         try:
             start_time = time.time()
-            test_url = f"{base_url.rstrip('/')}/v1/messages"
-            response = requests.post(
-                test_url,
-                headers={
-                    "x-api-key": token,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json"
-                },
-                json={
-                    "model": "claude-3-5-sonnet-20241022",
-                    "max_tokens": 1,
-                    "messages": [{"role": "user", "content": "1"}],
-                    "stream": True
-                },
-                timeout=actual_timeout,
-                verify=False,
-                stream=True
-            )
-
+            self._make_test_request(base_url, token, actual_timeout)
             response_time = time.time() - start_time
-            # 只要收到响应就认为API在线
-            response.close()
             return True, response_time
 
         except requests.exceptions.Timeout:
@@ -601,6 +662,28 @@ class EnvManager:
             return False, None
         except Exception:
             return False, None
+
+    def _make_test_request(self, base_url: str, token: str, timeout: int):
+        """发送测试请求的内部方法"""
+        test_url = f"{base_url.rstrip('/')}/v1/messages"
+        response = requests.post(
+            test_url,
+            headers={
+                "x-api-key": token,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
+            },
+            json={
+                "model": "claude-3-5-sonnet-20241022",
+                "max_tokens": 1,
+                "messages": [{"role": "user", "content": "1"}],
+                "stream": True
+            },
+            timeout=timeout,
+            verify=False,
+            stream=True
+        )
+        response.close()
 
     def get_current_model(self) -> Optional[str]:
         """获取当前使用的模型"""
@@ -619,23 +702,29 @@ class EnvManager:
 
     def list_models(self, show_status: bool = False):
         """列出所有可用模型"""
+        current = self.get_current_model()
+
         print("📋 可用模型列表：")
+        if current and current != "未知":
+            print(f"📍 当前启用的模型: {current}\n")
 
         if show_status:
             # 使用并发测试
             results = self.test_apis_concurrent(show_progress=True)
 
-            print(f"\n{'序号':<4} {'模型名':<15} {'状态':<8} {'响应时间':<10}")
-            print("-" * 45)
+            print(f"\n{'序号':<4} {'模型名':<15} {'状态':<8} {'响应时间':<10} {'标记':<10}")
+            print("-" * 60)
 
             for i, model in enumerate(self.config.keys(), 1):
                 status, resp_time = results.get(model, (False, None))
                 status_icon = "✅" if status else "❌"
                 time_str = f"{resp_time:.2f}s" if resp_time else "N/A"
-                print(f"{i:<4} {model:<15} {status_icon:<8} {time_str:<10}")
+                marker = "⭐ 当前启用" if model == current else ""
+                print(f"{i:<4} {model:<15} {status_icon:<8} {time_str:<10} {marker:<10}")
         else:
             for i, model in enumerate(self.config.keys(), 1):
-                print(f"  {i}. {model}")
+                marker = " ⭐ 当前启用" if model == current and current != "未知" else ""
+                print(f"  {i}. {model}{marker}")
 
     def switch_model(self, model_name: str, auto_reload: bool = True, record_stats: bool = True):
         """切换到指定模型"""
@@ -678,27 +767,27 @@ class EnvManager:
 
         # 显示当前模型
         current = self.get_current_model()
-        if current:
-            print(f"📍 当前模型: {current}")
+        if current and current != "未知":
+            print(f"📍 当前启用的模型: {current}")
         else:
-            print(f"📍 当前模型: 未设置")
+            print(f"📍 当前启用的模型: 未设置")
 
         print()
         # 使用并发测试
         models = list(self.config.keys())
         results = self.test_apis_concurrent(models, show_progress=True)
 
-        print(f"\n{'序号':<4} {'模型名':<15} {'状态':<8} {'响应时间':<10}")
-        print("-" * 45)
+        print(f"\n{'序号':<4} {'模型名':<15} {'状态':<8} {'响应时间':<10} {'标记':<10}")
+        print("-" * 60)
 
         for i, model in enumerate(models, 1):
             status, resp_time = results.get(model, (False, None))
             status_icon = "✅" if status else "❌"
             time_str = f"{resp_time:.2f}s" if resp_time else "N/A"
 
-            # 标记当前使用的模型
-            marker = " ← 当前" if model == current else ""
-            print(f"{i:<4} {model:<15} {status_icon:<8} {time_str:<10}{marker}")
+            # 标记当前使用的模型（更醒目）
+            marker = "⭐ 当前启用" if model == current and current != "未知" else ""
+            print(f"{i:<4} {model:<15} {status_icon:<8} {time_str:<10} {marker:<10}")
 
         print("\n" + "-" * 70)
         print("输入序号切换模型，输入 'r' 刷新状态，或输入 'q' 退出")
@@ -984,7 +1073,7 @@ def main():
     if command in ["current", "cur", "--current", "-c"]:
         current = manager.get_current_model()
         if current:
-            print(f"📍 当前模型: {current}")
+            print(f"📍 当前启用的模型: {current}")
             print(f"\n🔍 正在检测状态...")
             # 测试当前模型状态
             status, resp_time = manager.test_api(current)
@@ -994,10 +1083,10 @@ def main():
             else:
                 print(f"❌ 状态: 不可用")
                 print(f"\n💡 正在检测其他可用模型...")
-                print("=" * 45)
+                print("=" * 60)
                 manager.list_models(show_status=True)
         else:
-            print("📍 当前模型: 未设置")
+            print("📍 当前启用的模型: 未设置")
             print(f"\n💡 显示所有可用模型:")
             print("=" * 70)
             manager.list_models(show_status=True)
@@ -1132,20 +1221,82 @@ def main():
     # 导入配置
     if command in ["import", "--import"]:
         if len(sys.argv) < 3:
-            print("💡 用法: python set_model.py import <导入文件路径> [--merge]")
+            print("💡 用法: python set_model.py import <导入文件路径|分享链接> [--merge]")
             print("示例: python set_model.py import my_config.json")
             print("      python set_model.py import my_config.json --merge")
+            print("      python set_model.py import 'claude-switch://import?data=...'")
             sys.exit(1)
 
         import_path = sys.argv[2]
         merge = "--merge" in sys.argv
 
-        if merge:
-            print("📋 合并模式: 将与现有配置合并")
-        else:
-            print("📋 覆盖模式: 将添加新配置")
+        # 判断是否为深度链接
+        if import_path.startswith("claude-switch://"):
+            try:
+                config_data = DeepLinkHandler.parse_share_link(import_path)
+                print(f"📥 正在导入配置: {config_data['name']}")
+                print(f"   BASE_URL: {config_data['base_url']}")
 
-        manager.import_config(import_path, merge)
+                # 如果链接中包含 token
+                if "token" in config_data and config_data["token"]:
+                    token = config_data["token"]
+                    print(f"   TOKEN: {mask_sensitive_info(token, 10)}")
+                else:
+                    # 提示用户输入 token
+                    print(f"   TOKEN: 未包含（需要手动输入）")
+                    token = input("\n请输入 TOKEN: ").strip()
+                    if not token:
+                        print("❌ Token 不能为空")
+                        sys.exit(1)
+
+                # 添加到配置
+                manager.add_model(config_data["name"], config_data["base_url"], token)
+                print(f"\n✅ 配置导入成功！")
+
+            except ValueError as e:
+                print(f"❌ 导入失败: {e}")
+                sys.exit(1)
+        else:
+            # 传统的文件导入
+            if merge:
+                print("📋 合并模式: 将与现有配置合并")
+            else:
+                print("📋 覆盖模式: 将添加新配置")
+
+            manager.import_config(import_path, merge)
+        sys.exit(0)
+
+    # 分享配置（生成深度链接）
+    if command in ["share", "--share"]:
+        if len(sys.argv) < 3:
+            print("💡 用法: python set_model.py share <模型名> [--with-token]")
+            print("示例: python set_model.py share Gemai")
+            print("      python set_model.py share Gemai --with-token")
+            sys.exit(1)
+
+        model_name = sys.argv[2]
+        include_token = "--with-token" in sys.argv
+
+        if model_name not in manager.config:
+            print(f"❌ 模型 '{model_name}' 不存在")
+            print(f"\n可用模型：{', '.join(manager.config.keys())}")
+            sys.exit(1)
+
+        config = manager.config[model_name]
+        share_link = DeepLinkHandler.generate_share_link(model_name, config, include_token)
+
+        print(f"📤 分享链接已生成：\n")
+        print(f"{share_link}\n")
+        print("💡 使用方式：")
+        print("  1. 复制上面的链接发送给其他人")
+        print("  2. 对方运行: python set_model.py import '<链接>'")
+        print("  3. 自动添加配置到他们的工具中")
+
+        if include_token:
+            print("\n⚠️  安全提示: 链接包含完整 Token，请谨慎分享！")
+        else:
+            print("\n💡 提示: Token 未包含，对方需要手动输入")
+
         sys.exit(0)
 
     # 加密配置文件
@@ -1224,6 +1375,8 @@ def main():
         print("\n导入导出命令:")
         print("  python set_model.py export <文件> [--with-tokens]  # 导出配置")
         print("  python set_model.py import <文件> [--merge]        # 导入配置")
+        print("  python set_model.py share <模型名> [--with-token]  # 生成分享链接")
+        print("  python set_model.py import '<链接>'                # 从链接导入")
         print("\n统计命令:")
         print("  python set_model.py stats              # 查看使用统计")
         print("  python set_model.py reset-stats        # 重置统计数据")
@@ -1247,6 +1400,8 @@ def main():
         print("  - current命令会自动检测当前模型，如果不可用会显示所有模型状态")
         print("  - 交互模式会实时显示所有API的状态和响应速度")
         print("  - status命令使用并发测试，快速获取所有API状态")
+        print("  - 使用热身请求技术提高测速准确性（自动启用）")
+        print("  - share命令可生成一键分享链接，方便配置分享")
         print("  - 加密功能使用 PBKDF2 + Fernet 算法，安全可靠")
         print("  - stats命令显示详细的使用统计和最近7天的使用情况")
         print("  - 使用 --timeout 参数可以自定义超时时间，如: python set_model.py status -t 10")

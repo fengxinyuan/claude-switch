@@ -19,6 +19,8 @@
 - ✅ **自定义超时**: 支持自定义 API 测试超时时间
 - ✅ **健康监控**: 自动检测 API 健康状态并切换到可用 API
 - ✅ **配置导入导出**: 支持配置的跨设备迁移和分享
+- 🆕 **热身请求**: 使用热身请求技术提高测速准确性
+- 🆕 **深度链接**: 一键生成分享链接，快速导入配置
 
 ## 快速开始
 
@@ -80,6 +82,8 @@ python set_model.py auto
 |------|------|------|
 | `export <文件> [--with-tokens]` | 导出配置 | `python set_model.py export config.json` |
 | `import <文件> [--merge]` | 导入配置 | `python set_model.py import config.json --merge` |
+| `share <模型名> [--with-token]` | 生成分享链接 | `python set_model.py share Gemai` |
+| `import '<链接>'` | 从链接导入配置 | `python set_model.py import 'claude-switch://...'` |
 
 ### 统计命令
 
@@ -220,7 +224,7 @@ python set_model.py backup
 python set_model.py restore backups/model_config_20240101_120000.json
 ```
 
-### 场景 7: 配置导入导出
+### 场景 7: 配置导入导出与分享
 
 ```bash
 # 导出配置（不含 Token，安全分享）
@@ -234,6 +238,50 @@ python set_model.py import shared_config.json
 
 # 导入配置（合并模式，保留现有配置）
 python set_model.py import shared_config.json --merge
+
+# 🆕 生成分享链接（快速分享配置）
+python set_model.py share Gemai
+```
+
+**分享链接示例：**
+```bash
+# 生成不含 Token 的分享链接
+python set_model.py share FoxCode
+
+输出：
+📤 分享链接已生成：
+claude-switch://import?data=eyJuYW1lIjogIkZveENvZGUiLCAiYmFzZV91cmwiOiAiaHR0cHM6Ly9jb2RlLm5ld2NsaS5jb20vY2xhdWRlL2ZyZWUifQ==
+
+💡 使用方式：
+  1. 复制上面的链接发送给其他人
+  2. 对方运行: python set_model.py import '<链接>'
+  3. 自动添加配置到他们的工具中
+
+💡 提示: Token 未包含，对方需要手动输入
+```
+
+```bash
+# 对方导入配置（会提示输入 Token）
+python set_model.py import 'claude-switch://import?data=...'
+
+输出：
+📥 正在导入配置: FoxCode
+   BASE_URL: https://code.newcli.com/claude/free
+   TOKEN: 未包含（需要手动输入）
+
+请输入 TOKEN: sk-xxx...
+✅ 配置导入成功！
+```
+
+```bash
+# 生成含完整 Token 的分享链接（谨慎使用）
+python set_model.py share Gemai --with-token
+
+输出：
+📤 分享链接已生成：
+claude-switch://import?data=...
+
+⚠️  安全提示: 链接包含完整 Token，请谨慎分享！
 ```
 
 ### 场景 8: 配置加密
@@ -348,9 +396,10 @@ FoxCode         ❌ 不可用     N/A          healthy
 
 ### API 测试准确性
 
-- 优先使用流式 API 测试（更快更准确）
-- 只要收到响应就认为 API 在线（关注连接性而非请求成功与否）
-- 自动处理 SSL 证书问题
+- 🆕 **热身请求技术**: 发送两次请求，第一次用于建立连接池，第二次测速更准确
+- **流式 API 测试**: 优先使用流式 API 测试（更快更准确）
+- **连接性优先**: 只要收到响应就认为 API 在线（关注连接性而非请求成功与否）
+- **SSL 自动处理**: 自动处理 SSL 证书问题
 - 支持自定义超时时间（默认 5 秒）
 
 ### 配置管理增强
@@ -359,7 +408,8 @@ FoxCode         ❌ 不可用     N/A          healthy
 - **一键恢复**: 可快速从备份恢复配置
 - **信息脱敏**: 显示配置时自动脱敏 Token 信息，保护安全
 - **配置预览**: 可查看所有配置信息而不泄露完整 Token
-- **导入导出**: 支持配置的跨设备迁移和分享
+- 🆕 **深度链接分享**: 生成 `claude-switch://` 协议链接，一键分享和导入配置
+- **配置导入导出**: 支持配置的跨设备迁移和分享
 
 ### 安全功能
 
