@@ -875,6 +875,63 @@ class EnvManager:
         self._save_config()
         print(f"✅ 模型 '{name}' 已删除")
 
+    def setup_alias(self):
+        """自动配置 claude-switch 别名"""
+        if self.system not in ["Linux", "Darwin"]:
+            print("❌ 此功能仅支持 Linux/macOS 系统")
+            return False
+
+        shell_config = self._get_shell_config()
+        if not shell_config:
+            print("❌ 无法检测到 shell 配置文件")
+            return False
+
+        # 获取脚本所在目录
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        wrapper_script = os.path.join(script_dir, "switch_model.sh")
+
+        # 检查 wrapper 脚本是否存在
+        if not os.path.exists(wrapper_script):
+            print(f"❌ 找不到 wrapper 脚本: {wrapper_script}")
+            return False
+
+        # 生成别名命令
+        alias_line = f"alias claude-switch='source {wrapper_script}'"
+
+        # 检查别名是否已经存在
+        try:
+            with open(shell_config, 'r', encoding='utf-8') as f:
+                content = f.read()
+                if 'alias claude-switch=' in content:
+                    print(f"✅ 别名已存在于 {shell_config}")
+                    print(f"   当前配置: {alias_line}")
+                    print(f"\n💡 请运行以下命令使别名生效：")
+                    print(f"   source {shell_config}")
+                    return True
+        except Exception as e:
+            print(f"❌ 读取配置文件失败: {e}")
+            return False
+
+        # 添加别名
+        try:
+            with open(shell_config, 'a', encoding='utf-8') as f:
+                f.write(f'\n# Claude Switch - 模型切换工具别名\n')
+                f.write(f'{alias_line}\n')
+
+            print(f"✅ 别名已添加到 {shell_config}")
+            print(f"   配置内容: {alias_line}")
+            print(f"\n💡 请运行以下命令使别名立即生效：")
+            print(f"   source {shell_config}")
+            print(f"\n🎯 之后就可以使用以下命令：")
+            print(f"   claude-switch              # 交互模式")
+            print(f"   claude-switch <模型名>     # 切换模型")
+            print(f"   claude-switch current      # 查看当前模型")
+            return True
+
+        except Exception as e:
+            print(f"❌ 添加别名失败: {e}")
+            return False
+
     def _save_config(self):
         """保存配置到文件"""
         try:
@@ -1299,6 +1356,11 @@ def main():
 
         sys.exit(0)
 
+    # 配置别名
+    if command in ["setup-alias", "setup", "--setup-alias"]:
+        manager.setup_alias()
+        sys.exit(0)
+
     # 加密配置文件
     if command in ["encrypt", "--encrypt"]:
         if not CRYPTO_AVAILABLE:
@@ -1386,6 +1448,8 @@ def main():
         print("\n安全命令:")
         print("  python set_model.py encrypt            # 加密配置文件（需要cryptography库）")
         print("  python set_model.py decrypt            # 解密配置文件")
+        print("\n设置命令:")
+        print("  python set_model.py setup-alias        # 自动配置 claude-switch 别名")
         print("\n其他命令:")
         print("  python set_model.py list               # 列出所有模型（不测试）")
         print("  python set_model.py interactive        # 交互模式")
@@ -1395,8 +1459,10 @@ def main():
         print("  list: ls, -l        status: st, -s      current: cur, -c")
         print("  add: -a             update: up, -u      remove: rm, -r")
         print("  interactive: i, -i  backup: bak, -b     restore: res")
-        print("  show: info          auto: auto-switch")
+        print("  show: info          auto: auto-switch   setup-alias: setup")
         print("\n💡 提示:")
+        print("  - 首次使用建议运行 'python set_model.py setup-alias' 配置别名")
+        print("  - 配置别名后可直接使用 'claude-switch' 命令，环境变量立即生效")
         print("  - current命令会自动检测当前模型，如果不可用会显示所有模型状态")
         print("  - 交互模式会实时显示所有API的状态和响应速度")
         print("  - status命令使用并发测试，快速获取所有API状态")

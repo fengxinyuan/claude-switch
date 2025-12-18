@@ -36,6 +36,21 @@ pip install cryptography
 
 ### 基本用法
 
+#### 🚀 快速开始（推荐）
+
+```bash
+# 一键配置别名
+python set_model.py setup-alias
+
+# 重新加载配置
+source ~/.bashrc  # 或 source ~/.zshrc
+
+# 立即开始使用
+claude-switch              # 交互模式
+claude-switch AnyRouter    # 切换模型（立即生效）
+claude-switch current      # 查看当前状态
+```
+
 #### 方式 1: 使用 Shell Wrapper（推荐 - 切换立即生效）
 
 ```bash
@@ -75,7 +90,7 @@ python set_model.py status
 python set_model.py auto
 ```
 
-**💡 推荐使用方式 1（Shell Wrapper），切换后环境变量立即在当前会话生效，无需手动 source！**
+**💡 推荐使用快速开始方式，一键配置后即可使用！**
 
 ## 命令详解
 
