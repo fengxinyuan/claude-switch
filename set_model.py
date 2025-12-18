@@ -497,18 +497,52 @@ class EnvManager:
     # 默认超时时间（秒）
     DEFAULT_TIMEOUT = 5
 
-    def __init__(self, config_path: str = "model_config.json", timeout: int = None):
+    # 全局配置目录
+    DEFAULT_CONFIG_DIR = os.path.expanduser("~/.config/claude-switch")
+    DEFAULT_CONFIG_FILE = "config.json"
+
+    def __init__(self, config_path: str = None, timeout: int = None):
+        # 如果没有指定配置文件，使用全局配置
+        if config_path is None:
+            config_path = os.path.join(self.DEFAULT_CONFIG_DIR, self.DEFAULT_CONFIG_FILE)
+
         self.config_path = config_path
+        self.config_dir = os.path.dirname(config_path)
         self.system = platform.system()
         self.timeout = timeout or self.DEFAULT_TIMEOUT
+
+        # 确保配置目录存在
+        self._ensure_config_dir()
+
         self.config = self._load_config()
+
+    def _ensure_config_dir(self):
+        """确保配置目录存在"""
+        os.makedirs(self.config_dir, exist_ok=True)
 
     def _load_config(self) -> dict:
         """加载配置文件"""
         config_file = Path(self.config_path)
         if not config_file.exists():
-            print(f"❌ 错误：配置文件 {self.config_path} 不存在")
-            sys.exit(1)
+            # 如果配置文件不存在，尝试从本地迁移
+            local_config = Path("model_config.json")
+            if local_config.exists():
+                print(f"💡 检测到本地配置文件，正在迁移到全局配置目录...")
+                try:
+                    import shutil
+                    shutil.copy2(local_config, config_file)
+                    print(f"✅ 配置已迁移到: {config_file}")
+                    print(f"💡 现在可以在任何目录使用 claude-switch 命令了！")
+                except Exception as e:
+                    print(f"⚠️  迁移失败: {e}")
+            else:
+                # 创建空配置文件
+                print(f"💡 首次使用，正在创建配置文件: {config_file}")
+                with config_file.open("w", encoding="utf-8") as f:
+                    json.dump({}, f, indent=2)
+                print(f"✅ 配置文件已创建")
+                print(f"💡 使用 'claude-switch add' 添加 API 配置")
+                return {}
 
         try:
             with config_file.open("r", encoding="utf-8") as f:
@@ -1361,6 +1395,14 @@ def main():
         manager.setup_alias()
         sys.exit(0)
 
+    # 查看配置文件路径
+    if command in ["config-path", "path", "--config-path"]:
+        print(f"📁 配置文件路径:")
+        print(f"   {manager.config_path}")
+        print(f"\n📂 配置目录:")
+        print(f"   {manager.config_dir}")
+        sys.exit(0)
+
     # 加密配置文件
     if command in ["encrypt", "--encrypt"]:
         if not CRYPTO_AVAILABLE:
@@ -1450,6 +1492,7 @@ def main():
         print("  python set_model.py decrypt            # 解密配置文件")
         print("\n设置命令:")
         print("  python set_model.py setup-alias        # 自动配置 claude-switch 别名")
+        print("  python set_model.py config-path        # 查看配置文件路径")
         print("\n其他命令:")
         print("  python set_model.py list               # 列出所有模型（不测试）")
         print("  python set_model.py interactive        # 交互模式")

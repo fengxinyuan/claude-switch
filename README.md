@@ -6,6 +6,7 @@ Claude API 模型切换工具，支持快速切换不同的 API 提供商，并�
 
 - 🚀 **一键配置** - 自动配置别名，开箱即用
 - 🔄 **快速切换** - 即时切换 API 提供商，环境变量立即生效
+- 🌍 **全局可用** - 配置存储在 `~/.config/claude-switch/`，任何目录都能使用
 - 📊 **状态监控** - 实时检测连接状态、响应时间
 - ⚡ **并发测试** - 快速并发检测多个 API（3-5倍提速）
 - 🎯 **交互模式** - 可视化选择，实时显示状态
@@ -43,17 +44,17 @@ source ~/.bashrc  # 或 source ~/.zshrc
 ### 2. 添加 API 配置
 
 ```bash
-# 方式 1: 交互式添加
+# 交互式添加（推荐）
 claude-switch add
 
-# 方式 2: 命令行添加
+# 命令行添加
 claude-switch add MyAPI https://api.example.com sk-your-token
 ```
 
 ### 3. 开始使用
 
 ```bash
-# 查看所有模型
+# 查看所有模型状态
 claude-switch status
 
 # 交互式选择模型
@@ -65,6 +66,8 @@ claude-switch MyAPI
 # 查看当前模型
 claude-switch current
 ```
+
+**💡 现在可以在任何目录使用 `claude-switch` 命令了！**
 
 ## 使用方法
 
@@ -133,7 +136,7 @@ claude-switch share <模型名>
 
 ## 配置文件
 
-配置文件 `model_config.json` 格式：
+配置文件自动存储在：`~/.config/claude-switch/config.json`
 
 ```json
 {
@@ -144,9 +147,12 @@ claude-switch share <模型名>
 }
 ```
 
-**位置**: 项目根目录的 `model_config.json`
+**查看配置路径**:
+```bash
+claude-switch config-path
+```
 
-**安全提示**: 配置文件已添加到 `.gitignore`，不会被提交到 Git
+**自动迁移**: 首次使用时，如果检测到项目目录下的 `model_config.json`，会自动迁移到全局配置目录。
 
 ## 深度链接分享
 
