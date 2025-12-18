@@ -36,12 +36,34 @@ pip install cryptography
 
 ### 基本用法
 
+#### 方式 1: 使用 Shell Wrapper（推荐 - 切换立即生效）
+
 ```bash
-# 启动交互模式（推荐）
+# 首次使用，添加别名到 shell 配置文件
+echo "alias claude-switch='source $(pwd)/switch_model.sh'" >> ~/.bashrc  # 或 ~/.zshrc
+source ~/.bashrc  # 或 source ~/.zshrc
+
+# 启动交互模式
+claude-switch
+
+# 快速切换到指定模型（切换后立即在当前会话生效）
+claude-switch Gemai
+
+# 查看当前模型状态
+claude-switch current
+```
+
+#### 方式 2: 直接使用 Python（需要手动 source）
+
+```bash
+# 启动交互模式
 python set_model.py
 
 # 快速切换到指定模型
 python set_model.py Gemai
+
+# ⚠️ 切换后需要手动执行以下命令使环境变量生效：
+source ~/.bashrc  # 或 source ~/.zshrc
 
 # 查看当前模型状态（如果不可用会自动显示所有模型）
 python set_model.py current
@@ -52,6 +74,8 @@ python set_model.py status
 # 自动检测并切换到最快的可用 API
 python set_model.py auto
 ```
+
+**💡 推荐使用方式 1（Shell Wrapper），切换后环境变量立即在当前会话生效，无需手动 source！**
 
 ## 命令详解
 
@@ -379,7 +403,23 @@ FoxCode         ❌ 不可用     N/A          healthy
 3. `~/.bash_profile`
 4. `~/.profile`
 
-切换后会自动在当前会话生效。
+**使环境变量生效的方式：**
+
+1. **推荐方式：使用 Shell Wrapper**
+   ```bash
+   # 设置别名
+   echo "alias claude-switch='source $(pwd)/switch_model.sh'" >> ~/.bashrc
+   source ~/.bashrc
+
+   # 切换模型后立即在当前会话生效
+   claude-switch Gemai
+   ```
+
+2. **传统方式：手动 source**
+   ```bash
+   python set_model.py Gemai
+   source ~/.bashrc  # 手动执行使变量生效
+   ```
 
 ### Windows
 
@@ -432,7 +472,11 @@ A: 可能的原因：
 ### Q: 切换后环境变量没生效？
 
 A:
-- **Linux/macOS**: 工具会自动更新当前会话，如果在新终端中需要重新加载配置文件
+- **Linux/macOS - 推荐方案（使用 Shell Wrapper）**:
+  1. 首次设置别名：`echo "alias claude-switch='source $(pwd)/switch_model.sh'" >> ~/.bashrc`
+  2. 重新加载配置：`source ~/.bashrc`
+  3. 之后使用 `claude-switch` 命令切换，环境变量会立即生效，无需手动 source
+- **Linux/macOS - 传统方案**: 使用 `python set_model.py` 切换后，需要手动执行 `source ~/.bashrc` 使环境变量在当前会话生效
 - **Windows**: 需要重新打开命令行窗口
 
 ### Q: 如何备份配置？
