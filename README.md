@@ -54,17 +54,17 @@ claude-switch add MyAPI https://api.example.com sk-your-token
 ### 3. 开始使用
 
 ```bash
-# 查看所有模型状态
-claude-switch status
-
-# 交互式选择模型
+# 交互式选择模型（显示所有模型+状态）
 claude-switch
 
 # 快速切换到指定模型（环境变量立即生效）
 claude-switch MyAPI
 
-# 查看当前模型
-claude-switch current
+# 查看当前模型状态（含地址和Token）
+claude-switch status
+
+# 查看所有模型状态列表
+claude-switch list
 ```
 
 **💡 现在可以在任何目录使用 `claude-switch` 命令了！**
@@ -74,17 +74,17 @@ claude-switch current
 ### 基础命令
 
 ```bash
-# 切换模型（默认命令）
-claude-switch <模型名>
-
-# 交互模式
+# 交互模式（显示所有模型状态+选择切换）
 claude-switch
 
-# 查看当前模型
-claude-switch current
+# 快速切换模型
+claude-switch <模型名>
 
-# 查看所有模型状态
+# 查看当前模型详情（地址、Token、状态）
 claude-switch status
+
+# 查看所有模型状态列表
+claude-switch list
 ```
 
 ### 配置管理
@@ -175,7 +175,6 @@ claude-switch import 'claude-switch://import?data=...'
 |------|------|
 | `list` | `ls`, `-l` |
 | `status` | `st`, `-s` |
-| `current` | `cur`, `-c` |
 | `interactive` | `i`, `-i` |
 | `add` | `-a` |
 | `update` | `up`, `-u` |

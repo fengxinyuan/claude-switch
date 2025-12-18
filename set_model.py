@@ -621,34 +621,43 @@ class EnvManager:
 
         print("\n⚠️  注意：需要重新打开命令行窗口才能生效")
 
-    def set_linux_env(self, env_vars: Dict[str, str]):
-        """设置 Linux/macOS 环境变量"""
+    def set_linux_env(self, env_vars: Dict[str, str], silent: bool = False):
+        """设置 Linux/macOS 环境变量
+
+        Args:
+            env_vars: 环境变量字典
+            silent: 是否静默模式（不输出冗余信息）
+        """
         shell_config = self._get_shell_config()
-        print(f"🐧 Linux/macOS 系统检测到")
-        print(f"📝 配置文件：{shell_config}")
+
+        if not silent:
+            print(f"📝 配置文件：{shell_config}")
 
         for key, value in env_vars.items():
             try:
                 if self._is_var_in_file(shell_config, key):
                     self._update_var_in_file(shell_config, key, value)
-                    print(f"🔄 已更新：{key}={value}")
+                    if not silent:
+                        print(f"✓ {key}")
                 else:
                     with open(shell_config, "a", encoding="utf-8") as f:
                         f.write(f'\nexport {key}="{value}"\n')
-                    print(f"✅ 已添加：{key}={value}")
+                    if not silent:
+                        print(f"✓ {key}")
             except Exception as e:
                 print(f"❌ 错误：无法设置 {key} - {e}")
 
-        print(f"\n⚠️  请运行以下命令使环境变量立即生效：")
-        print(f"  source {shell_config}")
-        print(f"\n或者重新打开终端窗口")
+    def set_env_variables(self, env_vars: Dict[str, str], silent: bool = False):
+        """根据系统类型设置环境变量
 
-    def set_env_variables(self, env_vars: Dict[str, str]):
-        """根据系统类型设置环境变量"""
+        Args:
+            env_vars: 环境变量字典
+            silent: 是否静默模式
+        """
         if self.system == "Windows":
             self.set_windows_env(env_vars)
         elif self.system in ["Linux", "Darwin"]:  # Darwin 是 macOS
-            self.set_linux_env(env_vars)
+            self.set_linux_env(env_vars, silent=silent)
         else:
             print(f"❌ 不支持的操作系统: {self.system}")
             sys.exit(1)
@@ -734,13 +743,17 @@ class EnvManager:
 
         return "未知"
 
-    def list_models(self, show_status: bool = False):
-        """列出所有可用模型"""
+    def list_models(self, show_status: bool = False, show_config: bool = False):
+        """列出所有可用模型
+
+        Args:
+            show_status: 是否显示状态和响应时间
+            show_config: 是否显示配置信息（URL和Token）
+        """
         current = self.get_current_model()
 
-        print("📋 可用模型列表：")
         if current and current != "未知":
-            print(f"📍 当前启用的模型: {current}\n")
+            print(f"当前: {current}\n")
 
         if show_status:
             # 使用并发测试
@@ -753,25 +766,38 @@ class EnvManager:
                 status, resp_time = results.get(model, (False, None))
                 status_icon = "✅" if status else "❌"
                 time_str = f"{resp_time:.2f}s" if resp_time else "N/A"
-                marker = "⭐ 当前启用" if model == current else ""
+                marker = "⭐ 当前" if model == current else ""
                 print(f"{i:<4} {model:<15} {status_icon:<8} {time_str:<10} {marker:<10}")
+
+            # 如果需要显示配置信息
+            if show_config:
+                print("\n" + "=" * 60)
+                print("配置信息 (Token 已脱敏)")
+                print("=" * 60)
+                for model in self.config.keys():
+                    config = self.config[model]
+                    marker = " ⭐" if model == current else ""
+                    print(f"\n{model}{marker}")
+                    print(f"  URL:   {config.get('ANTHROPIC_BASE_URL', 'N/A')}")
+                    token = config.get('ANTHROPIC_AUTH_TOKEN', '')
+                    print(f"  TOKEN: {mask_sensitive_info(token, 10)}")
         else:
+            print("📋 可用模型：")
             for i, model in enumerate(self.config.keys(), 1):
-                marker = " ⭐ 当前启用" if model == current and current != "未知" else ""
+                marker = " ⭐" if model == current and current != "未知" else ""
                 print(f"  {i}. {model}{marker}")
 
     def switch_model(self, model_name: str, auto_reload: bool = True, record_stats: bool = True):
         """切换到指定模型"""
         if model_name not in self.config:
-            print(f"❌ 错误：模型 '{model_name}' 未配置")
-            print(f"\n可用模型：{', '.join(self.config.keys())}")
+            print(f"❌ 模型 '{model_name}' 未配置")
+            print(f"可用模型：{', '.join(self.config.keys())}")
             sys.exit(1)
 
-        print(f"🔄 正在切换至模型：{model_name}")
-        print("=" * 50)
-        self.set_env_variables(self.config[model_name])
-        print("=" * 50)
-        print(f"✅ 模型切换完成！")
+        print(f"🔄 切换到：{model_name}")
+
+        # 静默模式设置环境变量（不输出冗余信息）
+        self.set_env_variables(self.config[model_name], silent=True)
 
         # 记录使用统计
         if record_stats:
@@ -783,30 +809,26 @@ class EnvManager:
 
         # 自动重载环境变量
         if auto_reload and self.system in ["Linux", "Darwin"]:
-            shell_config = self._get_shell_config()
-            print(f"\n🔄 正在重载环境变量...")
             try:
                 # 更新当前进程的环境变量
                 for key, value in self.config[model_name].items():
                     os.environ[key] = value
-                print(f"✅ 环境变量已在当前会话中生效")
+                print(f"✅ 已切换到 {model_name}")
             except Exception as e:
-                print(f"⚠️  警告：自动重载失败 - {e}")
+                print(f"⚠️ 警告：{e}")
+                print(f"✅ 配置已更新到 shell 文件")
 
     def interactive_mode(self):
         """交互式选择模型"""
-        print("\n" + "=" * 70)
-        print("🎯 Claude 模型切换工具 - 交互模式")
-        print("=" * 70)
+        print("\n🎯 Claude 模型切换工具")
+        print("=" * 60)
 
         # 显示当前模型
         current = self.get_current_model()
         if current and current != "未知":
-            print(f"📍 当前启用的模型: {current}")
+            print(f"当前: {current}\n")
         else:
-            print(f"📍 当前启用的模型: 未设置")
-
-        print()
+            print(f"当前: 未设置\n")
         # 使用并发测试
         models = list(self.config.keys())
         results = self.test_apis_concurrent(models, show_progress=True)
@@ -1150,37 +1172,38 @@ def main():
 
     command = sys.argv[1]
 
-    # 列出所有模型
-    if command in ["list", "ls", "--list", "-l"]:
-        manager.list_models()
-        sys.exit(0)
-
-    # 列出所有模型并显示状态
+    # 显示当前模型状态（包含地址和 API key）
     if command in ["status", "st", "--status", "-s"]:
-        manager.list_models(show_status=True)
-        sys.exit(0)
-
-    # 显示当前模型（优化版：如果不可用自动显示所有模型状态）
-    if command in ["current", "cur", "--current", "-c"]:
         current = manager.get_current_model()
         if current:
-            print(f"📍 当前启用的模型: {current}")
-            print(f"\n🔍 正在检测状态...")
+            print(f"📍 当前模型: {current}")
+            print("=" * 60)
+
+            # 显示配置信息
+            if current in manager.config:
+                config = manager.config[current]
+                print(f"API 地址: {config.get('ANTHROPIC_BASE_URL', 'N/A')}")
+                token = config.get('ANTHROPIC_AUTH_TOKEN', '')
+                print(f"API Token: {mask_sensitive_info(token, 10)}")
+
             # 测试当前模型状态
+            print()
             status, resp_time = manager.test_api(current)
             if status:
-                print(f"✅ 状态: 可用")
-                print(f"⚡ 响应时间: {resp_time:.2f}s")
+                print(f"连接状态: ✅ 可用 (响应时间: {resp_time:.2f}s)")
             else:
-                print(f"❌ 状态: 不可用")
+                print(f"连接状态: ❌ 不可用")
                 print(f"\n💡 正在检测其他可用模型...")
-                print("=" * 60)
                 manager.list_models(show_status=True)
         else:
-            print("📍 当前启用的模型: 未设置")
-            print(f"\n💡 显示所有可用模型:")
-            print("=" * 70)
+            print("⚠️  当前未设置模型\n")
+            print("可用模型:")
             manager.list_models(show_status=True)
+        sys.exit(0)
+
+    # 列出所有模型（带状态检测）
+    if command in ["list", "ls", "--list", "-l"]:
+        manager.list_models(show_status=True)
         sys.exit(0)
 
     # 交互模式
@@ -1251,12 +1274,30 @@ def main():
 
     # 显示配置信息（脱敏）
     if command in ["show", "info", "--show"]:
-        print("📋 当前配置信息：\n")
+        print("📋 配置信息 (Token 已脱敏)\n")
         for model_name, config in manager.config.items():
-            print(f"模型: {model_name}")
-            print(f"  BASE_URL: {config.get('ANTHROPIC_BASE_URL', 'N/A')}")
+            marker = " ⭐" if model_name == manager.get_current_model() else ""
+            print(f"{model_name}{marker}")
+            print(f"  URL:   {config.get('ANTHROPIC_BASE_URL', 'N/A')}")
             token = config.get('ANTHROPIC_AUTH_TOKEN', '')
             print(f"  TOKEN: {mask_sensitive_info(token, 10)}")
+            print()
+        sys.exit(0)
+
+    # 显示完整配置信息（包括完整 Token）
+    if command in ["show-full", "full", "--show-full"]:
+        print("⚠️  警告：将显示完整的 API Key，请确保安全！")
+        confirm = input("确认显示？(yes/no): ").strip().lower()
+        if confirm not in ['yes', 'y']:
+            print("已取消")
+            sys.exit(0)
+
+        print("\n📋 完整配置信息\n")
+        for model_name, config in manager.config.items():
+            marker = " ⭐" if model_name == manager.get_current_model() else ""
+            print(f"{model_name}{marker}")
+            print(f"  URL:   {config.get('ANTHROPIC_BASE_URL', 'N/A')}")
+            print(f"  TOKEN: {config.get('ANTHROPIC_AUTH_TOKEN', 'N/A')}")
             print()
         sys.exit(0)
 
@@ -1466,14 +1507,15 @@ def main():
         print("\n常用命令:")
         print("  python set_model.py                    # 交互模式（推荐）")
         print("  python set_model.py <模型名>           # 快速切换模型")
-        print("  python set_model.py current            # 查看当前模型状态")
-        print("  python set_model.py status             # 查看所有模型状态")
+        print("  python set_model.py status             # 查看当前模型状态（含地址和Token）")
+        print("  python set_model.py list               # 查看所有模型状态")
         print("\n管理命令:")
         print("  python set_model.py add <名称> <URL> [TOKEN]     # 添加模型")
         print("  python set_model.py update <名称> --url <URL>    # 更新URL")
         print("  python set_model.py update <名称> --token <TOKEN> # 更新TOKEN")
         print("  python set_model.py remove <模型名>              # 删除模型")
         print("  python set_model.py show               # 显示配置信息（脱敏）")
+        print("  python set_model.py show-full          # 显示完整配置（含完整Token）")
         print("  python set_model.py backup             # 备份配置文件")
         print("  python set_model.py restore <文件>     # 从备份恢复配置")
         print("\n导入导出命令:")
@@ -1494,21 +1536,21 @@ def main():
         print("  python set_model.py setup-alias        # 自动配置 claude-switch 别名")
         print("  python set_model.py config-path        # 查看配置文件路径")
         print("\n其他命令:")
-        print("  python set_model.py list               # 列出所有模型（不测试）")
-        print("  python set_model.py interactive        # 交互模式")
+        print("  python set_model.py interactive        # 显式交互模式")
         print("\n全局参数:")
         print("  --timeout, -t <秒>                     # 设置API测试超时时间（默认5秒）")
         print("\n命令别名:")
-        print("  list: ls, -l        status: st, -s      current: cur, -c")
+        print("  list: ls, -l        status: st, -s")
         print("  add: -a             update: up, -u      remove: rm, -r")
         print("  interactive: i, -i  backup: bak, -b     restore: res")
-        print("  show: info          auto: auto-switch   setup-alias: setup")
+        print("  show: info          auto: auto-switch   show-full: full")
+        print("  setup-alias: setup")
         print("\n💡 提示:")
         print("  - 首次使用建议运行 'python set_model.py setup-alias' 配置别名")
         print("  - 配置别名后可直接使用 'claude-switch' 命令，环境变量立即生效")
-        print("  - current命令会自动检测当前模型，如果不可用会显示所有模型状态")
-        print("  - 交互模式会实时显示所有API的状态和响应速度")
-        print("  - status命令使用并发测试，快速获取所有API状态")
+        print("  - 无参数启动进入交互模式，显示所有API状态和响应速度")
+        print("  - status命令显示当前模型的详细信息（地址和Token）")
+        print("  - list命令显示所有模型的状态列表")
         print("  - 使用热身请求技术提高测速准确性（自动启用）")
         print("  - share命令可生成一键分享链接，方便配置分享")
         print("  - 加密功能使用 PBKDF2 + Fernet 算法，安全可靠")
