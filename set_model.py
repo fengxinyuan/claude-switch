@@ -423,74 +423,6 @@ class HealthMonitor:
         print(f"总计: {healthy_count} 个健康, {unhealthy_count} 个不可用")
 
 
-class DeepLinkHandler:
-    """深度链接处理器 - 用于分享和导入配置"""
-
-    PROTOCOL = "claude-switch://"
-
-    @staticmethod
-    def generate_share_link(provider_name: str, config: dict, include_token: bool = False) -> str:
-        """生成分享链接
-
-        Args:
-            provider_name: Provider 名称
-            config: Provider 配置
-            include_token: 是否包含完整 Token
-
-        Returns:
-            分享链接字符串
-        """
-        data = {
-            "name": provider_name,
-            "base_url": config.get("ANTHROPIC_BASE_URL", "")
-        }
-
-        if include_token:
-            data["token"] = config.get("ANTHROPIC_AUTH_TOKEN", "")
-
-        # Base64 编码
-        json_str = json.dumps(data, ensure_ascii=False)
-        encoded = base64.urlsafe_b64encode(json_str.encode()).decode()
-
-        return f"{DeepLinkHandler.PROTOCOL}import?data={encoded}"
-
-    @staticmethod
-    def parse_share_link(link: str) -> dict:
-        """解析分享链接
-
-        Args:
-            link: 分享链接
-
-        Returns:
-            解析后的配置字典
-
-        Raises:
-            ValueError: 链接格式错误
-        """
-        if not link.startswith(DeepLinkHandler.PROTOCOL):
-            raise ValueError(f"无效的链接格式，应以 {DeepLinkHandler.PROTOCOL} 开头")
-
-        try:
-            # 提取 data 参数
-            if "?data=" not in link:
-                raise ValueError("链接缺少 data 参数")
-
-            data_param = link.split("?data=")[1].split("&")[0]
-
-            # Base64 解码
-            decoded = base64.urlsafe_b64decode(data_param).decode()
-            config_data = json.loads(decoded)
-
-            # 验证必需字段
-            if "name" not in config_data or "base_url" not in config_data:
-                raise ValueError("链接数据不完整，缺少必需字段")
-
-            return config_data
-
-        except (IndexError, json.JSONDecodeError, Exception) as e:
-            raise ValueError(f"链接解析失败: {e}")
-
-
 class EnvManager:
     """环境变量管理器"""
 
@@ -1353,82 +1285,21 @@ def main():
     # 导入配置
     if command in ["import", "--import"]:
         if len(sys.argv) < 3:
-            print("💡 用法: python set_model.py import <导入文件路径|分享链接> [--merge]")
+            print("💡 用法: python set_model.py import <导入文件路径> [--merge]")
             print("示例: python set_model.py import my_config.json")
             print("      python set_model.py import my_config.json --merge")
-            print("      python set_model.py import 'claude-switch://import?data=...'")
             sys.exit(1)
 
         import_path = sys.argv[2]
         merge = "--merge" in sys.argv
 
-        # 判断是否为深度链接
-        if import_path.startswith("claude-switch://"):
-            try:
-                config_data = DeepLinkHandler.parse_share_link(import_path)
-                print(f"📥 正在导入配置: {config_data['name']}")
-                print(f"   BASE_URL: {config_data['base_url']}")
-
-                # 如果链接中包含 token
-                if "token" in config_data and config_data["token"]:
-                    token = config_data["token"]
-                    print(f"   TOKEN: {mask_sensitive_info(token, 10)}")
-                else:
-                    # 提示用户输入 token
-                    print(f"   TOKEN: 未包含（需要手动输入）")
-                    token = input("\n请输入 TOKEN: ").strip()
-                    if not token:
-                        print("❌ Token 不能为空")
-                        sys.exit(1)
-
-                # 添加到配置
-                manager.add_model(config_data["name"], config_data["base_url"], token)
-                print(f"\n✅ 配置导入成功！")
-
-            except ValueError as e:
-                print(f"❌ 导入失败: {e}")
-                sys.exit(1)
+        # 文件导入
+        if merge:
+            print("📋 合并模式: 将与现有配置合并")
         else:
-            # 传统的文件导入
-            if merge:
-                print("📋 合并模式: 将与现有配置合并")
-            else:
-                print("📋 覆盖模式: 将添加新配置")
+            print("📋 覆盖模式: 将添加新配置")
 
-            manager.import_config(import_path, merge)
-        sys.exit(0)
-
-    # 分享配置（生成深度链接）
-    if command in ["share", "--share"]:
-        if len(sys.argv) < 3:
-            print("💡 用法: python set_model.py share <模型名> [--with-token]")
-            print("示例: python set_model.py share Gemai")
-            print("      python set_model.py share Gemai --with-token")
-            sys.exit(1)
-
-        model_name = sys.argv[2]
-        include_token = "--with-token" in sys.argv
-
-        if model_name not in manager.config:
-            print(f"❌ 模型 '{model_name}' 不存在")
-            print(f"\n可用模型：{', '.join(manager.config.keys())}")
-            sys.exit(1)
-
-        config = manager.config[model_name]
-        share_link = DeepLinkHandler.generate_share_link(model_name, config, include_token)
-
-        print(f"📤 分享链接已生成：\n")
-        print(f"{share_link}\n")
-        print("💡 使用方式：")
-        print("  1. 复制上面的链接发送给其他人")
-        print("  2. 对方运行: python set_model.py import '<链接>'")
-        print("  3. 自动添加配置到他们的工具中")
-
-        if include_token:
-            print("\n⚠️  安全提示: 链接包含完整 Token，请谨慎分享！")
-        else:
-            print("\n💡 提示: Token 未包含，对方需要手动输入")
-
+        manager.import_config(import_path, merge)
         sys.exit(0)
 
     # 配置别名
@@ -1521,8 +1392,6 @@ def main():
         print("\n导入导出命令:")
         print("  python set_model.py export <文件> [--with-tokens]  # 导出配置")
         print("  python set_model.py import <文件> [--merge]        # 导入配置")
-        print("  python set_model.py share <模型名> [--with-token]  # 生成分享链接")
-        print("  python set_model.py import '<链接>'                # 从链接导入")
         print("\n统计命令:")
         print("  python set_model.py stats              # 查看使用统计")
         print("  python set_model.py reset-stats        # 重置统计数据")
@@ -1552,12 +1421,11 @@ def main():
         print("  - status命令显示当前模型的详细信息（地址和Token）")
         print("  - list命令显示所有模型的状态列表")
         print("  - 使用热身请求技术提高测速准确性（自动启用）")
-        print("  - share命令可生成一键分享链接，方便配置分享")
         print("  - 加密功能使用 PBKDF2 + Fernet 算法，安全可靠")
         print("  - stats命令显示详细的使用统计和最近7天的使用情况")
         print("  - 使用 --timeout 参数可以自定义超时时间，如: python set_model.py status -t 10")
         print("  - auto命令会自动检测当前API，不可用时切换到最快的可用API")
-        print("  - export/import命令支持配置的跨设备迁移和分享")
+        print("  - export/import命令支持配置的跨设备迁移")
         sys.exit(0)
 
     # 默认：切换模型

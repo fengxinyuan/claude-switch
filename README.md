@@ -13,7 +13,6 @@ Claude API 模型切换工具，支持快速切换不同的 API 提供商，并�
 - 🔐 **配置加密** - PBKDF2 + Fernet 加密保护敏感信息
 - 📈 **使用统计** - 记录切换历史和使用频率
 - 🏥 **健康监控** - 自动故障转移到可用 API
-- 🔗 **深度链接** - 一键分享配置
 - 🌐 **跨平台** - Windows / Linux / macOS
 
 ## 安装
@@ -129,9 +128,6 @@ claude-switch export config.json
 
 # 导入配置
 claude-switch import config.json
-
-# 生成分享链接
-claude-switch share <模型名>
 ```
 
 ## 配置文件
@@ -153,21 +149,6 @@ claude-switch config-path
 ```
 
 **自动迁移**: 首次使用时，如果检测到项目目录下的 `model_config.json`，会自动迁移到全局配置目录。
-
-## 深度链接分享
-
-快速分享 API 配置给他人：
-
-```bash
-# 生成分享链接（不含 Token）
-claude-switch share MyAPI
-
-# 生成分享链接（含完整 Token，谨慎使用）
-claude-switch share MyAPI --with-token
-
-# 对方导入配置
-claude-switch import 'claude-switch://import?data=...'
-```
 
 ## 命令别名
 
