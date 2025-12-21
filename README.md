@@ -10,9 +10,6 @@ Claude API 模型切换工具，支持快速切换不同的 API 提供商，并�
 - 📊 **状态监控** - 实时检测连接状态、响应时间
 - ⚡ **并发测试** - 快速并发检测多个 API（3-5倍提速）
 - 🎯 **交互模式** - 可视化选择，实时显示状态
-- 🔐 **配置加密** - PBKDF2 + Fernet 加密保护敏感信息
-- 📈 **使用统计** - 记录切换历史和使用频率
-- 🏥 **健康监控** - 自动故障转移到可用 API
 - 🌐 **跨平台** - Windows / Linux / macOS
 
 ## 安装
@@ -23,9 +20,6 @@ cd claude-switch
 
 # 安装基础依赖
 pip install requests urllib3
-
-# 可选：加密功能
-pip install cryptography
 ```
 
 ## 快速开始
@@ -103,31 +97,6 @@ claude-switch remove <名称>
 
 # 显示配置（Token 脱敏）
 claude-switch show
-
-# 备份配置
-claude-switch backup
-
-# 恢复配置
-claude-switch restore <文件>
-```
-
-### 高级功能
-
-```bash
-# 自动切换到最快的可用 API
-claude-switch auto
-
-# 查看 API 健康状态
-claude-switch health
-
-# 查看使用统计
-claude-switch stats
-
-# 导出配置
-claude-switch export config.json
-
-# 导入配置
-claude-switch import config.json
 ```
 
 ## 配置文件
@@ -161,9 +130,6 @@ claude-switch config-path
 | `update` | `up`, `-u` |
 | `remove` | `rm`, `-r` |
 | `show` | `info` |
-| `backup` | `bak`, `-b` |
-| `restore` | `res` |
-| `auto` | `auto-switch` |
 | `setup-alias` | `setup` |
 
 ## 环境变量
@@ -182,28 +148,6 @@ claude-switch config-path
 ### Q: 切换后环境变量没生效？
 
 **A**: 使用 `claude-switch` 别名命令，环境变量会立即生效。如果使用 `python set_model.py` 方式，需要手动 `source ~/.bashrc`
-
-### Q: 如何备份配置？
-
-**A**:
-```bash
-# 备份
-claude-switch backup  # 保存到 backups/ 目录
-
-# 恢复
-claude-switch restore backups/model_config_YYYYMMDD_HHMMSS.json
-```
-
-### Q: 如何在多台设备间同步配置？
-
-**A**: 使用导入导出功能
-```bash
-# 源设备导出
-claude-switch export config.json --with-tokens
-
-# 目标设备导入
-claude-switch import config.json
-```
 
 ## 性能优化
 

@@ -10,23 +10,9 @@ import urllib3
 from pathlib import Path
 from typing import Dict, Optional, Tuple, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
-import shutil
-import hashlib
-import base64
-import getpass
 
 # 禁用SSL警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-# 尝试导入加密库
-try:
-    from cryptography.fernet import Fernet
-    from cryptography.hazmat.primitives import hashes
-    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-    CRYPTO_AVAILABLE = True
-except ImportError:
-    CRYPTO_AVAILABLE = False
 
 
 def mask_sensitive_info(value: str, show_chars: int = 8) -> str:
@@ -45,382 +31,6 @@ def print_progress_bar(current: int, total: int, prefix: str = "", length: int =
     sys.stdout.flush()
     if current == total:
         print()  # 完成后换行
-
-
-class ConfigEncryption:
-    """配置文件加密管理器"""
-
-    SALT_FILE = ".config_salt"
-    ENCRYPTED_SUFFIX = ".enc"
-
-    def __init__(self, config_dir: str = "."):
-        self.config_dir = Path(config_dir)
-        self.salt_path = self.config_dir / self.SALT_FILE
-
-    def _get_or_create_salt(self) -> bytes:
-        """获取或创建盐值"""
-        if self.salt_path.exists():
-            with open(self.salt_path, "rb") as f:
-                return f.read()
-        else:
-            salt = os.urandom(16)
-            with open(self.salt_path, "wb") as f:
-                f.write(salt)
-            return salt
-
-    def _derive_key(self, password: str) -> bytes:
-        """从密码派生密钥"""
-        if not CRYPTO_AVAILABLE:
-            raise RuntimeError("加密功能需要安装 cryptography 库: pip install cryptography")
-
-        salt = self._get_or_create_salt()
-        kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=salt,
-            iterations=480000,
-        )
-        key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
-        return key
-
-    def encrypt_config(self, config_path: str, password: str) -> str:
-        """加密配置文件"""
-        if not CRYPTO_AVAILABLE:
-            raise RuntimeError("加密功能需要安装 cryptography 库: pip install cryptography")
-
-        key = self._derive_key(password)
-        fernet = Fernet(key)
-
-        with open(config_path, "rb") as f:
-            data = f.read()
-
-        encrypted_data = fernet.encrypt(data)
-        encrypted_path = config_path + self.ENCRYPTED_SUFFIX
-
-        with open(encrypted_path, "wb") as f:
-            f.write(encrypted_data)
-
-        return encrypted_path
-
-    def decrypt_config(self, encrypted_path: str, password: str) -> dict:
-        """解密配置文件"""
-        if not CRYPTO_AVAILABLE:
-            raise RuntimeError("加密功能需要安装 cryptography 库: pip install cryptography")
-
-        key = self._derive_key(password)
-        fernet = Fernet(key)
-
-        with open(encrypted_path, "rb") as f:
-            encrypted_data = f.read()
-
-        try:
-            decrypted_data = fernet.decrypt(encrypted_data)
-            return json.loads(decrypted_data.decode())
-        except Exception as e:
-            raise ValueError(f"解密失败，密码可能不正确: {e}")
-
-    def is_encrypted(self, config_path: str) -> bool:
-        """检查配置文件是否已加密"""
-        return config_path.endswith(self.ENCRYPTED_SUFFIX) or \
-               os.path.exists(config_path + self.ENCRYPTED_SUFFIX)
-
-
-class UsageStats:
-    """API 使用统计管理器"""
-
-    STATS_FILE = "usage_stats.json"
-
-    def __init__(self, stats_dir: str = "."):
-        self.stats_dir = Path(stats_dir)
-        self.stats_path = self.stats_dir / self.STATS_FILE
-        self.stats = self._load_stats()
-
-    def _load_stats(self) -> dict:
-        """加载统计数据"""
-        if self.stats_path.exists():
-            try:
-                with open(self.stats_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except:
-                return self._init_stats()
-        return self._init_stats()
-
-    def _init_stats(self) -> dict:
-        """初始化统计数据"""
-        return {
-            "total_switches": 0,
-            "models": {},
-            "daily_usage": {},
-            "last_switch": None
-        }
-
-    def _save_stats(self):
-        """保存统计数据"""
-        try:
-            with open(self.stats_path, "w", encoding="utf-8") as f:
-                json.dump(self.stats, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            print(f"⚠️  保存统计数据失败: {e}")
-
-    def record_switch(self, model_name: str):
-        """记录一次模型切换"""
-        today = datetime.now().strftime("%Y-%m-%d")
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # 更新总切换次数
-        self.stats["total_switches"] += 1
-
-        # 更新模型统计
-        if model_name not in self.stats["models"]:
-            self.stats["models"][model_name] = {
-                "switch_count": 0,
-                "first_used": now,
-                "last_used": now
-            }
-        self.stats["models"][model_name]["switch_count"] += 1
-        self.stats["models"][model_name]["last_used"] = now
-
-        # 更新每日统计
-        if today not in self.stats["daily_usage"]:
-            self.stats["daily_usage"][today] = {}
-        if model_name not in self.stats["daily_usage"][today]:
-            self.stats["daily_usage"][today][model_name] = 0
-        self.stats["daily_usage"][today][model_name] += 1
-
-        # 更新最后切换时间
-        self.stats["last_switch"] = {
-            "model": model_name,
-            "time": now
-        }
-
-        self._save_stats()
-
-    def get_summary(self) -> dict:
-        """获取统计摘要"""
-        return {
-            "total_switches": self.stats["total_switches"],
-            "total_models": len(self.stats["models"]),
-            "last_switch": self.stats.get("last_switch"),
-            "most_used": self._get_most_used_model()
-        }
-
-    def _get_most_used_model(self) -> Optional[Tuple[str, int]]:
-        """获取使用最多的模型"""
-        if not self.stats["models"]:
-            return None
-        most_used = max(
-            self.stats["models"].items(),
-            key=lambda x: x[1]["switch_count"]
-        )
-        return (most_used[0], most_used[1]["switch_count"])
-
-    def get_model_stats(self, model_name: str) -> Optional[dict]:
-        """获取特定模型的统计"""
-        return self.stats["models"].get(model_name)
-
-    def get_recent_days(self, days: int = 7) -> dict:
-        """获取最近几天的统计"""
-        result = {}
-        today = datetime.now()
-        for i in range(days):
-            date = (today - __import__('datetime').timedelta(days=i)).strftime("%Y-%m-%d")
-            if date in self.stats["daily_usage"]:
-                result[date] = self.stats["daily_usage"][date]
-            else:
-                result[date] = {}
-        return result
-
-    def print_stats(self):
-        """打印统计信息"""
-        print("📊 API 使用统计")
-        print("=" * 50)
-
-        summary = self.get_summary()
-        print(f"总切换次数: {summary['total_switches']}")
-        print(f"使用的模型数: {summary['total_models']}")
-
-        if summary['last_switch']:
-            print(f"最后切换: {summary['last_switch']['model']} ({summary['last_switch']['time']})")
-
-        if summary['most_used']:
-            print(f"最常用模型: {summary['most_used'][0]} ({summary['most_used'][1]} 次)")
-
-        print("\n📈 各模型使用详情:")
-        print("-" * 50)
-        print(f"{'模型名':<15} {'切换次数':<10} {'最后使用':<20}")
-        print("-" * 50)
-
-        for model_name, stats in sorted(
-            self.stats["models"].items(),
-            key=lambda x: x[1]["switch_count"],
-            reverse=True
-        ):
-            print(f"{model_name:<15} {stats['switch_count']:<10} {stats['last_used']:<20}")
-
-        # 显示最近7天的使用情况
-        print("\n📅 最近 7 天使用情况:")
-        print("-" * 50)
-        recent = self.get_recent_days(7)
-        for date in sorted(recent.keys(), reverse=True):
-            usage = recent[date]
-            if usage:
-                total = sum(usage.values())
-                models_str = ", ".join([f"{k}:{v}" for k, v in usage.items()])
-                print(f"{date}: {total} 次 ({models_str})")
-            else:
-                print(f"{date}: 0 次")
-
-    def reset_stats(self):
-        """重置统计数据"""
-        self.stats = self._init_stats()
-        self._save_stats()
-        print("✅ 统计数据已重置")
-
-
-class HealthMonitor:
-    """API 健康监控器"""
-
-    HEALTH_FILE = ".health_state.json"
-
-    def __init__(self, manager: 'EnvManager'):
-        self.manager = manager
-        self.health_path = Path(self.HEALTH_FILE)
-        self.health_state = self._load_health_state()
-
-    def _load_health_state(self) -> dict:
-        """加载健康状态"""
-        if self.health_path.exists():
-            try:
-                with open(self.health_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except:
-                return {}
-        return {}
-
-    def _save_health_state(self):
-        """保存健康状态"""
-        try:
-            with open(self.health_path, "w", encoding="utf-8") as f:
-                json.dump(self.health_state, f, indent=2, ensure_ascii=False)
-        except:
-            pass
-
-    def check_and_switch(self, auto_switch: bool = True) -> Tuple[str, bool]:
-        """检查当前API健康状态，如果不可用则自动切换
-        返回: (当前/切换后的模型名, 是否进行了切换)
-        """
-        current = self.manager.get_current_model()
-        if not current or current == "未知":
-            print("⚠️  当前没有设置模型")
-            return None, False
-
-        # 测试当前API
-        status, resp_time = self.manager.test_api(current)
-
-        if status:
-            # 当前API正常
-            self.health_state[current] = {
-                "status": "healthy",
-                "last_check": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "response_time": resp_time
-            }
-            self._save_health_state()
-            return current, False
-
-        # 当前API不可用
-        print(f"⚠️  当前模型 '{current}' 不可用")
-        self.health_state[current] = {
-            "status": "unhealthy",
-            "last_check": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "response_time": None
-        }
-
-        if not auto_switch:
-            self._save_health_state()
-            return current, False
-
-        # 查找可用的替代API
-        print("🔍 正在查找可用的替代API...")
-        results = self.manager.test_apis_concurrent(show_progress=True)
-
-        # 按响应时间排序，选择最快的可用API
-        available = [
-            (model, resp_time)
-            for model, (status, resp_time) in results.items()
-            if status and model != current
-        ]
-
-        if not available:
-            print("❌ 没有找到可用的替代API")
-            self._save_health_state()
-            return current, False
-
-        # 选择响应最快的
-        available.sort(key=lambda x: x[1])
-        best_model, best_time = available[0]
-
-        print(f"\n✅ 找到最佳替代: {best_model} (响应时间: {best_time:.2f}s)")
-        print(f"🔄 正在自动切换...")
-
-        self.manager.switch_model(best_model, record_stats=True)
-
-        self.health_state[best_model] = {
-            "status": "healthy",
-            "last_check": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "response_time": best_time
-        }
-        self._save_health_state()
-
-        return best_model, True
-
-    def get_health_report(self) -> dict:
-        """获取健康报告"""
-        report = {
-            "last_update": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "models": {}
-        }
-
-        # 测试所有API
-        results = self.manager.test_apis_concurrent(show_progress=True)
-
-        for model, (status, resp_time) in results.items():
-            report["models"][model] = {
-                "status": "healthy" if status else "unhealthy",
-                "response_time": resp_time,
-                "previous_state": self.health_state.get(model, {}).get("status", "unknown")
-            }
-
-        return report
-
-    def print_health_report(self):
-        """打印健康报告"""
-        print("🏥 API 健康状态报告")
-        print("=" * 60)
-
-        report = self.get_health_report()
-        print(f"检测时间: {report['last_update']}")
-        print()
-
-        healthy_count = 0
-        unhealthy_count = 0
-
-        print(f"{'模型名':<15} {'状态':<10} {'响应时间':<12} {'上次状态':<10}")
-        print("-" * 60)
-
-        for model, data in report["models"].items():
-            status_icon = "✅ 健康" if data["status"] == "healthy" else "❌ 不可用"
-            time_str = f"{data['response_time']:.2f}s" if data['response_time'] else "N/A"
-            prev_status = data["previous_state"]
-
-            if data["status"] == "healthy":
-                healthy_count += 1
-            else:
-                unhealthy_count += 1
-
-            print(f"{model:<15} {status_icon:<10} {time_str:<12} {prev_status:<10}")
-
-        print("-" * 60)
-        print(f"总计: {healthy_count} 个健康, {unhealthy_count} 个不可用")
 
 
 class EnvManager:
@@ -719,7 +329,7 @@ class EnvManager:
                 marker = " ⭐" if model == current and current != "未知" else ""
                 print(f"  {i}. {model}{marker}")
 
-    def switch_model(self, model_name: str, auto_reload: bool = True, record_stats: bool = True):
+    def switch_model(self, model_name: str, auto_reload: bool = True):
         """切换到指定模型"""
         if model_name not in self.config:
             print(f"❌ 模型 '{model_name}' 未配置")
@@ -730,14 +340,6 @@ class EnvManager:
 
         # 静默模式设置环境变量（不输出冗余信息）
         self.set_env_variables(self.config[model_name], silent=True)
-
-        # 记录使用统计
-        if record_stats:
-            try:
-                stats = UsageStats()
-                stats.record_switch(model_name)
-            except Exception:
-                pass  # 统计失败不影响主功能
 
         # 自动重载环境变量
         if auto_reload and self.system in ["Linux", "Darwin"]:
@@ -929,122 +531,6 @@ class EnvManager:
             print(f"❌ 保存配置失败: {e}")
             sys.exit(1)
 
-    def backup_config(self, backup_dir: str = "backups") -> str:
-        """备份配置文件"""
-        try:
-            # 创建备份目录
-            Path(backup_dir).mkdir(exist_ok=True)
-
-            # 生成备份文件名（带时间戳）
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_file = f"{backup_dir}/model_config_{timestamp}.json"
-
-            # 复制配置文件
-            shutil.copy2(self.config_path, backup_file)
-            return backup_file
-        except Exception as e:
-            print(f"❌ 备份配置失败: {e}")
-            return ""
-
-    def restore_config(self, backup_file: str):
-        """从备份恢复配置"""
-        try:
-            if not os.path.exists(backup_file):
-                print(f"❌ 备份文件不存在: {backup_file}")
-                return False
-
-            shutil.copy2(backup_file, self.config_path)
-            self.config = self._load_config()
-            print(f"✅ 配置已从备份恢复: {backup_file}")
-            return True
-        except Exception as e:
-            print(f"❌ 恢复配置失败: {e}")
-            return False
-
-    def export_config(self, export_path: str, include_tokens: bool = False) -> bool:
-        """导出配置文件
-        Args:
-            export_path: 导出路径
-            include_tokens: 是否包含完整的 Token（默认脱敏）
-        """
-        try:
-            export_data = {
-                "version": "1.0",
-                "exported_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "models": {}
-            }
-
-            for name, config in self.config.items():
-                export_data["models"][name] = {
-                    "ANTHROPIC_BASE_URL": config.get("ANTHROPIC_BASE_URL", ""),
-                    "ANTHROPIC_AUTH_TOKEN": config.get("ANTHROPIC_AUTH_TOKEN", "") if include_tokens else ""
-                }
-
-            with open(export_path, "w", encoding="utf-8") as f:
-                json.dump(export_data, f, indent=2, ensure_ascii=False)
-
-            return True
-        except Exception as e:
-            print(f"❌ 导出配置失败: {e}")
-            return False
-
-    def import_config(self, import_path: str, merge: bool = False) -> bool:
-        """导入配置文件
-        Args:
-            import_path: 导入路径
-            merge: 是否合并（True则合并，False则覆盖）
-        """
-        try:
-            if not os.path.exists(import_path):
-                print(f"❌ 导入文件不存在: {import_path}")
-                return False
-
-            with open(import_path, "r", encoding="utf-8") as f:
-                import_data = json.load(f)
-
-            # 兼容新旧格式
-            if "models" in import_data:
-                models = import_data["models"]
-            else:
-                models = import_data
-
-            imported_count = 0
-            skipped_count = 0
-
-            for name, config in models.items():
-                # 检查是否有有效的 URL
-                if not config.get("ANTHROPIC_BASE_URL"):
-                    print(f"⚠️  跳过 '{name}'：没有 BASE_URL")
-                    skipped_count += 1
-                    continue
-
-                if merge and name in self.config:
-                    # 合并模式：只更新非空字段
-                    if config.get("ANTHROPIC_BASE_URL"):
-                        self.config[name]["ANTHROPIC_BASE_URL"] = config["ANTHROPIC_BASE_URL"]
-                    if config.get("ANTHROPIC_AUTH_TOKEN"):
-                        self.config[name]["ANTHROPIC_AUTH_TOKEN"] = config["ANTHROPIC_AUTH_TOKEN"]
-                    print(f"🔄 已更新: {name}")
-                else:
-                    # 覆盖模式或新模型
-                    self.config[name] = {
-                        "ANTHROPIC_BASE_URL": config.get("ANTHROPIC_BASE_URL", ""),
-                        "ANTHROPIC_AUTH_TOKEN": config.get("ANTHROPIC_AUTH_TOKEN", "")
-                    }
-                    print(f"✅ 已导入: {name}")
-                imported_count += 1
-
-            self._save_config()
-            print(f"\n📊 导入完成: {imported_count} 个成功, {skipped_count} 个跳过")
-            return True
-
-        except json.JSONDecodeError as e:
-            print(f"❌ 文件格式错误: {e}")
-            return False
-        except Exception as e:
-            print(f"❌ 导入配置失败: {e}")
-            return False
-
     def test_apis_concurrent(self, models: List[str] = None, show_progress: bool = True) -> Dict[str, Tuple[bool, Optional[float]]]:
         """并发测试多个API"""
         if models is None:
@@ -1188,22 +674,6 @@ def main():
         manager.remove_model(sys.argv[2])
         sys.exit(0)
 
-    # 备份配置
-    if command in ["backup", "bak", "--backup", "-b"]:
-        backup_file = manager.backup_config()
-        if backup_file:
-            print(f"✅ 配置已备份至: {backup_file}")
-        sys.exit(0)
-
-    # 恢复配置
-    if command in ["restore", "res", "--restore"]:
-        if len(sys.argv) < 3:
-            print("💡 用法: python set_model.py restore <备份文件路径>")
-            print("提示: 备份文件位于 backups/ 目录")
-            sys.exit(1)
-        manager.restore_config(sys.argv[2])
-        sys.exit(0)
-
     # 显示配置信息（脱敏）
     if command in ["show", "info", "--show"]:
         print("📋 配置信息 (Token 已脱敏)\n")
@@ -1214,92 +684,6 @@ def main():
             token = config.get('ANTHROPIC_AUTH_TOKEN', '')
             print(f"  TOKEN: {mask_sensitive_info(token, 10)}")
             print()
-        sys.exit(0)
-
-    # 显示完整配置信息（包括完整 Token）
-    if command in ["show-full", "full", "--show-full"]:
-        print("⚠️  警告：将显示完整的 API Key，请确保安全！")
-        confirm = input("确认显示？(yes/no): ").strip().lower()
-        if confirm not in ['yes', 'y']:
-            print("已取消")
-            sys.exit(0)
-
-        print("\n📋 完整配置信息\n")
-        for model_name, config in manager.config.items():
-            marker = " ⭐" if model_name == manager.get_current_model() else ""
-            print(f"{model_name}{marker}")
-            print(f"  URL:   {config.get('ANTHROPIC_BASE_URL', 'N/A')}")
-            print(f"  TOKEN: {config.get('ANTHROPIC_AUTH_TOKEN', 'N/A')}")
-            print()
-        sys.exit(0)
-
-    # 使用统计
-    if command in ["stats", "--stats"]:
-        stats = UsageStats()
-        stats.print_stats()
-        sys.exit(0)
-
-    # 重置统计
-    if command in ["reset-stats", "--reset-stats"]:
-        print("⚠️  确认重置所有使用统计？(y/n): ", end="")
-        if input().strip().lower() == 'y':
-            stats = UsageStats()
-            stats.reset_stats()
-        else:
-            print("❌ 取消重置")
-        sys.exit(0)
-
-    # 健康检查
-    if command in ["health", "--health"]:
-        monitor = HealthMonitor(manager)
-        monitor.print_health_report()
-        sys.exit(0)
-
-    # 自动切换（检查并切换到可用API）
-    if command in ["auto", "--auto", "auto-switch"]:
-        monitor = HealthMonitor(manager)
-        model, switched = monitor.check_and_switch(auto_switch=True)
-        if switched:
-            print(f"\n✅ 已自动切换到: {model}")
-        elif model:
-            print(f"✅ 当前模型 '{model}' 运行正常，无需切换")
-        sys.exit(0)
-
-    # 导出配置
-    if command in ["export", "--export"]:
-        if len(sys.argv) < 3:
-            print("💡 用法: python set_model.py export <导出文件路径> [--with-tokens]")
-            print("示例: python set_model.py export my_config.json")
-            print("      python set_model.py export my_config.json --with-tokens")
-            sys.exit(1)
-
-        export_path = sys.argv[2]
-        include_tokens = "--with-tokens" in sys.argv
-
-        if manager.export_config(export_path, include_tokens):
-            print(f"✅ 配置已导出至: {export_path}")
-            if not include_tokens:
-                print("💡 提示: Token 已脱敏，如需包含完整 Token，请添加 --with-tokens 参数")
-        sys.exit(0)
-
-    # 导入配置
-    if command in ["import", "--import"]:
-        if len(sys.argv) < 3:
-            print("💡 用法: python set_model.py import <导入文件路径> [--merge]")
-            print("示例: python set_model.py import my_config.json")
-            print("      python set_model.py import my_config.json --merge")
-            sys.exit(1)
-
-        import_path = sys.argv[2]
-        merge = "--merge" in sys.argv
-
-        # 文件导入
-        if merge:
-            print("📋 合并模式: 将与现有配置合并")
-        else:
-            print("📋 覆盖模式: 将添加新配置")
-
-        manager.import_config(import_path, merge)
         sys.exit(0)
 
     # 配置别名
@@ -1313,63 +697,6 @@ def main():
         print(f"   {manager.config_path}")
         print(f"\n📂 配置目录:")
         print(f"   {manager.config_dir}")
-        sys.exit(0)
-
-    # 加密配置文件
-    if command in ["encrypt", "--encrypt"]:
-        if not CRYPTO_AVAILABLE:
-            print("❌ 加密功能需要安装 cryptography 库")
-            print("💡 请运行: pip install cryptography")
-            sys.exit(1)
-
-        encryption = ConfigEncryption()
-        if encryption.is_encrypted(manager.config_path):
-            print("⚠️  配置文件已加密")
-            sys.exit(0)
-
-        password = getpass.getpass("请设置加密密码: ")
-        password_confirm = getpass.getpass("请确认密码: ")
-
-        if password != password_confirm:
-            print("❌ 两次输入的密码不一致")
-            sys.exit(1)
-
-        try:
-            encrypted_path = encryption.encrypt_config(manager.config_path, password)
-            # 删除原始配置文件
-            os.remove(manager.config_path)
-            print(f"✅ 配置已加密: {encrypted_path}")
-            print("⚠️  原始配置文件已删除，请牢记密码！")
-        except Exception as e:
-            print(f"❌ 加密失败: {e}")
-        sys.exit(0)
-
-    # 解密配置文件
-    if command in ["decrypt", "--decrypt"]:
-        if not CRYPTO_AVAILABLE:
-            print("❌ 解密功能需要安装 cryptography 库")
-            print("💡 请运行: pip install cryptography")
-            sys.exit(1)
-
-        encryption = ConfigEncryption()
-        encrypted_path = manager.config_path + encryption.ENCRYPTED_SUFFIX
-
-        if not os.path.exists(encrypted_path):
-            print("⚠️  没有找到加密的配置文件")
-            sys.exit(0)
-
-        password = getpass.getpass("请输入解密密码: ")
-
-        try:
-            config = encryption.decrypt_config(encrypted_path, password)
-            # 保存解密后的配置
-            with open(manager.config_path, "w", encoding="utf-8") as f:
-                json.dump(config, f, indent=2, ensure_ascii=False)
-            # 删除加密文件
-            os.remove(encrypted_path)
-            print(f"✅ 配置已解密: {manager.config_path}")
-        except Exception as e:
-            print(f"❌ 解密失败: {e}")
         sys.exit(0)
 
     # 帮助信息
@@ -1386,33 +713,16 @@ def main():
         print("  python set_model.py update <名称> --token <TOKEN> # 更新TOKEN")
         print("  python set_model.py remove <模型名>              # 删除模型")
         print("  python set_model.py show               # 显示配置信息（脱敏）")
-        print("  python set_model.py show-full          # 显示完整配置（含完整Token）")
-        print("  python set_model.py backup             # 备份配置文件")
-        print("  python set_model.py restore <文件>     # 从备份恢复配置")
-        print("\n导入导出命令:")
-        print("  python set_model.py export <文件> [--with-tokens]  # 导出配置")
-        print("  python set_model.py import <文件> [--merge]        # 导入配置")
-        print("\n统计命令:")
-        print("  python set_model.py stats              # 查看使用统计")
-        print("  python set_model.py reset-stats        # 重置统计数据")
-        print("\n健康监控命令:")
-        print("  python set_model.py health             # 查看所有API健康状态")
-        print("  python set_model.py auto               # 自动检查并切换到可用API")
-        print("\n安全命令:")
-        print("  python set_model.py encrypt            # 加密配置文件（需要cryptography库）")
-        print("  python set_model.py decrypt            # 解密配置文件")
         print("\n设置命令:")
         print("  python set_model.py setup-alias        # 自动配置 claude-switch 别名")
         print("  python set_model.py config-path        # 查看配置文件路径")
-        print("\n其他命令:")
         print("  python set_model.py interactive        # 显式交互模式")
         print("\n全局参数:")
         print("  --timeout, -t <秒>                     # 设置API测试超时时间（默认5秒）")
         print("\n命令别名:")
         print("  list: ls, -l        status: st, -s")
         print("  add: -a             update: up, -u      remove: rm, -r")
-        print("  interactive: i, -i  backup: bak, -b     restore: res")
-        print("  show: info          auto: auto-switch   show-full: full")
+        print("  interactive: i, -i  show: info")
         print("  setup-alias: setup")
         print("\n💡 提示:")
         print("  - 首次使用建议运行 'python set_model.py setup-alias' 配置别名")
@@ -1421,11 +731,7 @@ def main():
         print("  - status命令显示当前模型的详细信息（地址和Token）")
         print("  - list命令显示所有模型的状态列表")
         print("  - 使用热身请求技术提高测速准确性（自动启用）")
-        print("  - 加密功能使用 PBKDF2 + Fernet 算法，安全可靠")
-        print("  - stats命令显示详细的使用统计和最近7天的使用情况")
         print("  - 使用 --timeout 参数可以自定义超时时间，如: python set_model.py status -t 10")
-        print("  - auto命令会自动检测当前API，不可用时切换到最快的可用API")
-        print("  - export/import命令支持配置的跨设备迁移")
         sys.exit(0)
 
     # 默认：切换模型
