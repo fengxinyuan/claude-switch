@@ -465,6 +465,169 @@ class EnvManager:
         self._save_config()
         print(f"✅ 模型 '{name}' 已删除")
 
+    def rename_model(self, old_name: str, new_name: str) -> bool:
+        """重命名模型配置"""
+        if old_name not in self.config:
+            print(f"❌ 模型 '{old_name}' 不存在")
+            return False
+
+        if not new_name.strip():
+            print("❌ 新模型名称不能为空")
+            return False
+
+        if new_name in self.config and new_name != old_name:
+            print(f"⚠️  模型 '{new_name}' 已存在，是否覆盖？(y/n): ", end="")
+            if input().strip().lower() != 'y':
+                print("❌ 取消重命名")
+                return False
+            del self.config[new_name]
+
+        self.config[new_name] = self.config.pop(old_name)
+        self._save_config()
+
+        current = self.get_current_model()
+        print(f"✅ 模型已重命名: {old_name} → {new_name}")
+
+        if old_name == current:
+            print(f"💡 当前使用的模型已重命名")
+            shell_config = self._get_shell_config()
+            if shell_config:
+                print(f"   请运行: source {shell_config}")
+
+        return True
+
+    def interactive_edit_model(self, name: str) -> bool:
+        """交互式编辑模型配置"""
+        if name not in self.config:
+            print(f"❌ 模型 '{name}' 不存在")
+            return False
+
+        current_name = name  # 跟踪当前名称，可能会被重命名
+        config = self.config[name]
+        changes = {}
+        new_name = None
+
+        print(f"\n编辑模型配置")
+        print("=" * 60)
+        print(f"模型名: {current_name}")
+        print(f"当前值:")
+        print(f"  URL:   {config.get('ANTHROPIC_BASE_URL', 'N/A')}")
+        token = config.get('ANTHROPIC_AUTH_TOKEN', '')
+        print(f"  TOKEN: {mask_sensitive_info(token, 10)}")
+        print("=" * 60)
+
+        while True:
+            try:
+                print("\n请选择要编辑的内容:")
+                print("  1. 编辑URL地址")
+                print("  2. 编辑API Token")
+                print("  3. 重命名模型")
+                print("  0. 保存并退出")
+                print("  q. 取消操作")
+
+                choice = input("\n请选择: ").strip().lower()
+
+                if choice == 'q':
+                    print("❌ 取消编辑")
+                    return False
+
+                if choice == '0':
+                    # 先处理重命名
+                    if new_name and new_name != current_name:
+                        if new_name in self.config and new_name != current_name:
+                            print(f"⚠️  模型 '{new_name}' 已存在，是否覆盖？(y/n): ", end="")
+                            if input().strip().lower() != 'y':
+                                print("❌ 取消保存")
+                                return False
+                            del self.config[new_name]
+
+                        # 执行重命名
+                        self.config[new_name] = self.config.pop(current_name)
+                        current_name = new_name
+                        print(f"✅ 模型已重命名为: {new_name}")
+
+                    # 再应用其他修改
+                    if changes:
+                        return self._apply_model_changes(current_name, changes)
+                    elif new_name and new_name != name:
+                        # 只有重命名，没有其他修改
+                        self._save_config()
+
+                        # 检查是否重命名了当前使用的模型
+                        current_model = self.get_current_model()
+                        if name == current_model:
+                            print(f"💡 当前使用的模型已重命名")
+                            shell_config = self._get_shell_config()
+                            if shell_config:
+                                print(f"   请运行: source {shell_config}")
+                        return True
+                    else:
+                        print("💡 没有进行任何修改")
+                        return True
+
+                if choice == '1':
+                    new_url = input("新的URL地址: ").strip()
+                    if new_url:
+                        changes['ANTHROPIC_BASE_URL'] = new_url
+                        print("✅ URL已记录（保存后生效）")
+                    else:
+                        print("❌ URL不能为空")
+
+                elif choice == '2':
+                    new_token = input("新的API Token: ").strip()
+                    if new_token:
+                        changes['ANTHROPIC_AUTH_TOKEN'] = new_token
+                        print("✅ TOKEN已记录（保存后生效）")
+                    else:
+                        print("❌ TOKEN不能为空")
+
+                elif choice == '3':
+                    print(f"当前名称: {current_name}")
+                    input_name = input("新的模型名称: ").strip()
+                    if input_name:
+                        if input_name == current_name:
+                            print("💡 名称未改变")
+                        else:
+                            new_name = input_name
+                            print(f"✅ 新名称已记录: {new_name}（保存后生效）")
+                    else:
+                        print("❌ 名称不能为空")
+
+                else:
+                    print("❌ 无效选择，请输入 0-3 或 q")
+
+            except KeyboardInterrupt:
+                print("\n\n❌ 取消编辑")
+                return False
+            except Exception as e:
+                print(f"❌ 错误: {e}")
+
+    def edit_model(self, name: str, base_url: Optional[str] = None,
+                   token: Optional[str] = None, new_name: Optional[str] = None,
+                   interactive: bool = False):
+        """编辑模型配置（支持参数和交互两种模式）"""
+        if name not in self.config:
+            print(f"❌ 模型 '{name}' 不存在")
+            return
+
+        # 如果有参数且非强制交互，直接更新
+        if (base_url or token or new_name) and not interactive:
+            # 处理重命名
+            if new_name and new_name != name:
+                # 使用 rename_model 处理重命名
+                if not self.rename_model(name, new_name):
+                    return
+                # 重命名成功后，更新 name 为新名称
+                name = new_name
+
+            # 处理其他字段更新
+            if base_url or token:
+                self.update_model(name, base_url, token)
+            return
+
+        # 进入交互编辑
+        self.interactive_edit_model(name)
+
     def setup_alias(self):
         """自动配置 claude-switch 别名"""
         if self.system not in ["Linux", "Darwin"]:
@@ -531,6 +694,23 @@ class EnvManager:
             print(f"❌ 保存配置失败: {e}")
             sys.exit(1)
 
+    def _apply_model_changes(self, name: str, changes: dict) -> bool:
+        """应用模型配置变更"""
+        try:
+            for key, value in changes.items():
+                self.config[name][key] = value
+                if key == "ANTHROPIC_BASE_URL":
+                    print(f"✅ URL已更新")
+                elif key == "ANTHROPIC_AUTH_TOKEN":
+                    print(f"✅ TOKEN已更新")
+
+            self._save_config()
+            print(f"✅ 配置已保存")
+            return True
+        except Exception as e:
+            print(f"❌ 保存失败: {e}")
+            return False
+
     def test_apis_concurrent(self, models: List[str] = None, show_progress: bool = True) -> Dict[str, Tuple[bool, Optional[float]]]:
         """并发测试多个API"""
         if models is None:
@@ -590,8 +770,8 @@ def main():
 
     command = sys.argv[1]
 
-    # 显示当前模型状态（包含地址和 API key）
-    if command in ["status", "st", "--status", "-s"]:
+    # 查看当前模型状态
+    if command in ["status", "st"]:
         current = manager.get_current_model()
         if current:
             print(f"📍 当前模型: {current}")
@@ -620,19 +800,19 @@ def main():
         sys.exit(0)
 
     # 列出所有模型（带状态检测）
-    if command in ["list", "ls", "--list", "-l"]:
+    if command in ["list", "ls"]:
         manager.list_models(show_status=True)
         sys.exit(0)
 
     # 交互模式
-    if command in ["interactive", "i", "--interactive", "-i"]:
+    if command in ["interactive", "i"]:
         manager.interactive_mode()
         sys.exit(0)
 
     # 添加模型
-    if command in ["add", "--add", "-a"]:
+    if command in ["add"]:
         if len(sys.argv) < 4:
-            print("💡 用法: python set_model.py add <模型名> <BASE_URL> [TOKEN]")
+            print("💡 用法: claude-switch add <模型名> <URL> [TOKEN]")
             sys.exit(1)
         name = sys.argv[2]
         base_url = sys.argv[3]
@@ -640,11 +820,12 @@ def main():
         manager.add_model(name, base_url, token)
         sys.exit(0)
 
-    # 更新模型
-    if command in ["update", "up", "--update", "-u"]:
+    # 更新模型（整合到 edit 命令，保留向后兼容）
+    if command in ["update", "up"]:
         if len(sys.argv) < 3:
-            print("💡 用法: python set_model.py update <模型名> [--url <URL>] [--token <TOKEN>]")
-            print("示例: python set_model.py update 哈吉米 --url https://new-url.com")
+            print("💡 用法: claude-switch update <模型名> [--url <URL>] [--token <TOKEN>]")
+            print("提示: update 命令已整合到 edit，建议使用 'claude-switch edit' 获得更多功能")
+            print("示例: claude-switch edit model-1 --url https://new-url.com")
             sys.exit(1)
 
         name = sys.argv[2]
@@ -663,19 +844,62 @@ def main():
             else:
                 i += 1
 
-        manager.update_model(name, base_url, token)
+        # 使用 edit_model 替代 update_model
+        manager.edit_model(name, base_url, token)
         sys.exit(0)
 
     # 删除模型
-    if command in ["remove", "rm", "--remove", "-r"]:
+    if command in ["remove", "rm"]:
         if len(sys.argv) < 3:
-            print("💡 用法: python set_model.py remove <模型名>")
+            print("💡 用法: claude-switch remove <模型名>")
             sys.exit(1)
         manager.remove_model(sys.argv[2])
         sys.exit(0)
 
+    # 编辑模型配置
+    if command in ["edit", "ed"]:
+        if len(sys.argv) < 3:
+            print("💡 用法: claude-switch edit <模型名> [选项]")
+            print("选项:")
+            print("  --name <新名称>        重命名模型")
+            print("  --url <URL>            编辑URL")
+            print("  --token <TOKEN>        编辑Token")
+            print("\n示例:")
+            print("  claude-switch edit model-1                          # 交互式编辑所有字段")
+            print("  claude-switch edit model-1 --name new-model        # 重命名")
+            print("  claude-switch edit model-1 --url https://...       # 快速改URL")
+            print("  claude-switch edit model-1 --name new --url https://...  # 同时修改多个")
+            sys.exit(1)
+
+        name = sys.argv[2]
+        base_url = None
+        token = None
+        new_name = None
+        interactive = False
+
+        # 解析参数
+        i = 3
+        while i < len(sys.argv):
+            if sys.argv[i] in ["-i", "--interactive"]:
+                interactive = True
+                i += 1
+            elif sys.argv[i] in ["--name", "-name"]:
+                new_name = sys.argv[i + 1] if i + 1 < len(sys.argv) else None
+                i += 2
+            elif sys.argv[i] in ["--url", "-url"]:
+                base_url = sys.argv[i + 1] if i + 1 < len(sys.argv) else None
+                i += 2
+            elif sys.argv[i] in ["--token", "-token"]:
+                token = sys.argv[i + 1] if i + 1 < len(sys.argv) else None
+                i += 2
+            else:
+                i += 1
+
+        manager.edit_model(name, base_url, token, new_name, interactive)
+        sys.exit(0)
+
     # 显示配置信息（脱敏）
-    if command in ["show", "info", "--show"]:
+    if command in ["show"]:
         print("📋 配置信息 (Token 已脱敏)\n")
         for model_name, config in manager.config.items():
             marker = " ⭐" if model_name == manager.get_current_model() else ""
@@ -687,12 +911,12 @@ def main():
         sys.exit(0)
 
     # 配置别名
-    if command in ["setup-alias", "setup", "--setup-alias"]:
+    if command in ["setup"]:
         manager.setup_alias()
         sys.exit(0)
 
     # 查看配置文件路径
-    if command in ["config-path", "path", "--config-path"]:
+    if command in ["config"]:
         print(f"📁 配置文件路径:")
         print(f"   {manager.config_path}")
         print(f"\n📂 配置目录:")
@@ -700,38 +924,53 @@ def main():
         sys.exit(0)
 
     # 帮助信息
-    if command in ["help", "--help", "-h"]:
-        print("🎯 Claude 模型切换工具")
-        print("\n常用命令:")
-        print("  python set_model.py                    # 交互模式（推荐）")
-        print("  python set_model.py <模型名>           # 快速切换模型")
-        print("  python set_model.py status             # 查看当前模型状态（含地址和Token）")
-        print("  python set_model.py list               # 查看所有模型状态")
-        print("\n管理命令:")
-        print("  python set_model.py add <名称> <URL> [TOKEN]     # 添加模型")
-        print("  python set_model.py update <名称> --url <URL>    # 更新URL")
-        print("  python set_model.py update <名称> --token <TOKEN> # 更新TOKEN")
-        print("  python set_model.py remove <模型名>              # 删除模型")
-        print("  python set_model.py show               # 显示配置信息（脱敏）")
-        print("\n设置命令:")
-        print("  python set_model.py setup-alias        # 自动配置 claude-switch 别名")
-        print("  python set_model.py config-path        # 查看配置文件路径")
-        print("  python set_model.py interactive        # 显式交互模式")
-        print("\n全局参数:")
-        print("  --timeout, -t <秒>                     # 设置API测试超时时间（默认5秒）")
-        print("\n命令别名:")
-        print("  list: ls, -l        status: st, -s")
-        print("  add: -a             update: up, -u      remove: rm, -r")
-        print("  interactive: i, -i  show: info")
-        print("  setup-alias: setup")
-        print("\n💡 提示:")
-        print("  - 首次使用建议运行 'python set_model.py setup-alias' 配置别名")
-        print("  - 配置别名后可直接使用 'claude-switch' 命令，环境变量立即生效")
-        print("  - 无参数启动进入交互模式，显示所有API状态和响应速度")
-        print("  - status命令显示当前模型的详细信息（地址和Token）")
-        print("  - list命令显示所有模型的状态列表")
-        print("  - 使用热身请求技术提高测速准确性（自动启用）")
-        print("  - 使用 --timeout 参数可以自定义超时时间，如: python set_model.py status -t 10")
+    if command in ["help"]:
+        print("🎯 Claude 模型切换工具\n")
+        print("=" * 60)
+
+        print("\n📌 基础操作")
+        print("  claude-switch              # 进入交互模式（推荐）")
+        print("  claude-switch <模型名>     # 快速切换到指定模型")
+        print("  claude-switch status       # 查看当前使用的模型")
+        print("  claude-switch list         # 列出所有模型和状态")
+
+        print("\n⚙️  配置管理")
+        print("  claude-switch add <名称> <URL> [TOKEN]")
+        print("      添加新模型配置")
+        print()
+        print("  claude-switch edit <名称> [选项]")
+        print("      编辑模型配置（可改所有字段）")
+        print("      --name <新名称>    重命名模型")
+        print("      --url <URL>        修改API地址")
+        print("      --token <TOKEN>    修改API令牌")
+        print("      示例:")
+        print("        claude-switch edit my-model              # 交互式编辑")
+        print("        claude-switch edit my-model --name new   # 重命名")
+        print("        claude-switch edit my-model --url https://api.com")
+        print()
+        print("  claude-switch remove <名称>")
+        print("      删除模型配置")
+        print()
+        print("  claude-switch show")
+        print("      查看所有配置（Token已脱敏）")
+
+        print("\n🔧 工具命令")
+        print("  claude-switch setup        # 配置 claude-switch 别名")
+        print("  claude-switch config       # 查看配置文件路径")
+        print("  claude-switch help         # 显示此帮助信息")
+
+        print("\n⚡ 快捷别名")
+        print("  list → ls       status → st      edit → ed")
+        print("  remove → rm     interactive → i")
+        print()
+        print("  update → 请使用 edit 替代（功能更强大）")
+
+        print("\n💡 使用提示")
+        print("  1. 首次使用运行: claude-switch setup")
+        print("  2. 重新加载配置: source ~/.bashrc  (或 ~/.zshrc)")
+        print("  3. edit 命令功能最全，支持修改所有字段")
+        print("  4. 无参数启动进入交互模式，可查看API状态和响应速度")
+        print("\n" + "=" * 60)
         sys.exit(0)
 
     # 默认：切换模型
