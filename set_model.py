@@ -804,11 +804,6 @@ def main():
         manager.list_models(show_status=True)
         sys.exit(0)
 
-    # 交互模式
-    if command in ["interactive", "i"]:
-        manager.interactive_mode()
-        sys.exit(0)
-
     # 添加模型
     if command in ["add"]:
         if len(sys.argv) < 4:
@@ -820,34 +815,6 @@ def main():
         manager.add_model(name, base_url, token)
         sys.exit(0)
 
-    # 更新模型（整合到 edit 命令，保留向后兼容）
-    if command in ["update", "up"]:
-        if len(sys.argv) < 3:
-            print("💡 用法: claude-switch update <模型名> [--url <URL>] [--token <TOKEN>]")
-            print("提示: update 命令已整合到 edit，建议使用 'claude-switch edit' 获得更多功能")
-            print("示例: claude-switch edit model-1 --url https://new-url.com")
-            sys.exit(1)
-
-        name = sys.argv[2]
-        base_url = None
-        token = None
-
-        # 解析参数
-        i = 3
-        while i < len(sys.argv):
-            if sys.argv[i] in ["--url", "-url"]:
-                base_url = sys.argv[i + 1] if i + 1 < len(sys.argv) else None
-                i += 2
-            elif sys.argv[i] in ["--token", "-token"]:
-                token = sys.argv[i + 1] if i + 1 < len(sys.argv) else None
-                i += 2
-            else:
-                i += 1
-
-        # 使用 edit_model 替代 update_model
-        manager.edit_model(name, base_url, token)
-        sys.exit(0)
-
     # 删除模型
     if command in ["remove", "rm"]:
         if len(sys.argv) < 3:
@@ -856,19 +823,19 @@ def main():
         manager.remove_model(sys.argv[2])
         sys.exit(0)
 
-    # 编辑模型配置
-    if command in ["edit", "ed"]:
+    # 更新模型配置
+    if command in ["update", "up"]:
         if len(sys.argv) < 3:
-            print("💡 用法: claude-switch edit <模型名> [选项]")
+            print("💡 用法: claude-switch update <模型名> [选项]")
             print("选项:")
             print("  --name <新名称>        重命名模型")
-            print("  --url <URL>            编辑URL")
-            print("  --token <TOKEN>        编辑Token")
+            print("  --url <URL>            更新URL")
+            print("  --token <TOKEN>        更新Token")
             print("\n示例:")
-            print("  claude-switch edit model-1                          # 交互式编辑所有字段")
-            print("  claude-switch edit model-1 --name new-model        # 重命名")
-            print("  claude-switch edit model-1 --url https://...       # 快速改URL")
-            print("  claude-switch edit model-1 --name new --url https://...  # 同时修改多个")
+            print("  claude-switch update model-1                          # 交互式更新所有字段")
+            print("  claude-switch update model-1 --name new-model        # 重命名")
+            print("  claude-switch update model-1 --url https://...       # 快速改URL")
+            print("  claude-switch update model-1 --name new --url https://...  # 同时修改多个")
             sys.exit(1)
 
         name = sys.argv[2]
@@ -938,15 +905,15 @@ def main():
         print("  claude-switch add <名称> <URL> [TOKEN]")
         print("      添加新模型配置")
         print()
-        print("  claude-switch edit <名称> [选项]")
-        print("      编辑模型配置（可改所有字段）")
+        print("  claude-switch update <名称> [选项]")
+        print("      更新模型配置（可改所有字段）")
         print("      --name <新名称>    重命名模型")
         print("      --url <URL>        修改API地址")
         print("      --token <TOKEN>    修改API令牌")
         print("      示例:")
-        print("        claude-switch edit my-model              # 交互式编辑")
-        print("        claude-switch edit my-model --name new   # 重命名")
-        print("        claude-switch edit my-model --url https://api.com")
+        print("        claude-switch update my-model              # 交互式更新")
+        print("        claude-switch update my-model --name new   # 重命名")
+        print("        claude-switch update my-model --url https://api.com")
         print()
         print("  claude-switch remove <名称>")
         print("      删除模型配置")
@@ -960,15 +927,13 @@ def main():
         print("  claude-switch help         # 显示此帮助信息")
 
         print("\n⚡ 快捷别名")
-        print("  list → ls       status → st      edit → ed")
-        print("  remove → rm     interactive → i")
-        print()
-        print("  update → 请使用 edit 替代（功能更强大）")
+        print("  list → ls       status → st      update → up")
+        print("  remove → rm")
 
         print("\n💡 使用提示")
         print("  1. 首次使用运行: claude-switch setup")
         print("  2. 重新加载配置: source ~/.bashrc  (或 ~/.zshrc)")
-        print("  3. edit 命令功能最全，支持修改所有字段")
+        print("  3. update 命令功能最全，支持修改所有字段")
         print("  4. 无参数启动进入交互模式，可查看API状态和响应速度")
         print("\n" + "=" * 60)
         sys.exit(0)

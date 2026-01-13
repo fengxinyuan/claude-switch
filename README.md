@@ -53,7 +53,7 @@ claude-switch
 # 快速切换到指定模型（环境变量立即生效）
 claude-switch MyAPI
 
-# 查看当前模型状态（含地址和Token）
+# 查看当前模型详情（含地址和Token）
 claude-switch status
 
 # 查看所有模型状态列表
@@ -83,19 +83,21 @@ claude-switch list
 ### 配置管理
 
 ```bash
-# 添加模型
-claude-switch add <名称> <URL> [TOKEN]
+# 添加模型（交互式或命令行）
+claude-switch add                         # 交互式添加
+claude-switch add <名称> <URL> [TOKEN]    # 命令行添加
 
-# 更新 URL
-claude-switch update <名称> --url <URL>
-
-# 更新 Token
-claude-switch update <名称> --token <TOKEN>
+# 更新模型配置（支持交互式和参数模式）
+claude-switch update <名称>               # 交互式更新所有字段
+claude-switch update <名称> --url <URL>   # 快速更新URL
+claude-switch update <名称> --token <TOKEN>      # 快速更新Token
+claude-switch update <名称> --name <新名称>       # 重命名模型
+claude-switch update <名称> --url <URL> --token <TOKEN>  # 同时更新多个
 
 # 删除模型
 claude-switch remove <名称>
 
-# 显示配置（Token 脱敏）
+# 显示所有配置（Token 脱敏）
 claude-switch show
 ```
 
@@ -114,7 +116,7 @@ claude-switch show
 
 **查看配置路径**:
 ```bash
-claude-switch config-path
+claude-switch config
 ```
 
 **自动迁移**: 首次使用时，如果检测到项目目录下的 `model_config.json`，会自动迁移到全局配置目录。
@@ -123,14 +125,10 @@ claude-switch config-path
 
 | 命令 | 别名 |
 |------|------|
-| `list` | `ls`, `-l` |
-| `status` | `st`, `-s` |
-| `interactive` | `i`, `-i` |
-| `add` | `-a` |
-| `update` | `up`, `-u` |
-| `remove` | `rm`, `-r` |
-| `show` | `info` |
-| `setup-alias` | `setup` |
+| `list` | `ls` |
+| `status` | `st` |
+| `update` | `up` |
+| `remove` | `rm` |
 
 ## 环境变量
 
@@ -147,7 +145,15 @@ claude-switch config-path
 
 ### Q: 切换后环境变量没生效？
 
-**A**: 使用 `claude-switch` 别名命令，环境变量会立即生效。如果使用 `python set_model.py` 方式，需要手动 `source ~/.bashrc`
+**A**: 使用 `claude-switch` 别名命令，环境变量会立即生效。如果使用 `python set_model.py` 方式，需要手动执行 `source ~/.bashrc`
+
+### Q: 如何修改模型配置？
+
+**A**: 使用 `claude-switch update <模型名>` 进入交互式编辑，或使用 `--url`, `--token`, `--name` 参数快速修改
+
+### Q: 如何查看所有模型状态？
+
+**A**: 直接运行 `claude-switch`（无参数）进入交互模式，会显示所有模型的实时状态、响应时间，并可以选择切换
 
 ## 性能优化
 
