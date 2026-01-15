@@ -352,6 +352,66 @@ class EnvManager:
                 print(f"⚠️ 警告：{e}")
                 print(f"✅ 配置已更新到 shell 文件")
 
+    def interactive_select_model(self, action_name: str = "操作") -> Optional[str]:
+        """交互式选择模型（用于编辑等操作）
+
+        Args:
+            action_name: 操作名称（如"编辑"、"删除"等）
+
+        Returns:
+            选择的模型名称，如果取消则返回 None
+        """
+        if not self.config:
+            print("❌ 还没有配置任何模型")
+            print("💡 使用 'claude-switch add' 添加模型配置")
+            return None
+
+        print(f"\n🎯 选择要{action_name}的模型")
+        print("=" * 60)
+
+        # 显示当前模型
+        current = self.get_current_model()
+        if current and current != "未知":
+            print(f"当前: {current}\n")
+
+        # 列出所有模型
+        models = list(self.config.keys())
+        print(f"{'序号':<4} {'模型名':<25} {'标记':<10}")
+        print("-" * 60)
+
+        for i, model in enumerate(models, 1):
+            marker = "⭐ 当前" if model == current and current != "未知" else ""
+            print(f"{i:<4} {model:<25} {marker:<10}")
+
+        print("-" * 60)
+        print("💡 输入序号选择模型，或输入 'q' 退出")
+
+        while True:
+            try:
+                choice = input("\n请选择: ").strip()
+
+                if choice.lower() == 'q':
+                    print("👋 取消操作")
+                    return None
+
+                if not choice.isdigit():
+                    print("❌ 请输入有效的序号")
+                    continue
+
+                index = int(choice) - 1
+                if 0 <= index < len(models):
+                    selected = models[index]
+                    print(f"✅ 已选择: {selected}")
+                    return selected
+                else:
+                    print("❌ 序号超出范围")
+
+            except KeyboardInterrupt:
+                print("\n\n👋 取消操作")
+                return None
+            except Exception as e:
+                print(f"❌ 错误: {e}")
+
     def interactive_mode(self):
         """交互式选择模型"""
         print("\n🎯 Claude 模型切换工具")
@@ -507,10 +567,10 @@ class EnvManager:
         changes = {}
         new_name = None
 
-        print(f"\n编辑模型配置")
+        print(f"\n✏️  编辑模型配置")
         print("=" * 60)
         print(f"模型名: {current_name}")
-        print(f"当前值:")
+        print(f"当前配置:")
         print(f"  URL:   {config.get('ANTHROPIC_BASE_URL', 'N/A')}")
         token = config.get('ANTHROPIC_AUTH_TOKEN', '')
         print(f"  TOKEN: {mask_sensitive_info(token, 10)}")
@@ -518,6 +578,16 @@ class EnvManager:
 
         while True:
             try:
+                # 显示待保存的修改
+                if changes or new_name:
+                    print("\n📝 待保存的修改:")
+                    if new_name and new_name != name:
+                        print(f"  • 新名称: {new_name}")
+                    if 'ANTHROPIC_BASE_URL' in changes:
+                        print(f"  • 新URL: {changes['ANTHROPIC_BASE_URL']}")
+                    if 'ANTHROPIC_AUTH_TOKEN' in changes:
+                        print(f"  • 新TOKEN: {mask_sensitive_info(changes['ANTHROPIC_AUTH_TOKEN'], 10)}")
+
                 print("\n请选择要编辑的内容:")
                 print("  1. 编辑URL地址")
                 print("  2. 编辑API Token")
@@ -817,26 +887,26 @@ def main():
 
     # 删除模型
     if command in ["remove", "rm"]:
+        # 如果没有指定模型名，进入交互式选择
         if len(sys.argv) < 3:
-            print("💡 用法: claude-switch remove <模型名>")
-            sys.exit(1)
+            name = manager.interactive_select_model("删除")
+            if name is None:
+                sys.exit(0)
+            manager.remove_model(name)
+            sys.exit(0)
         manager.remove_model(sys.argv[2])
         sys.exit(0)
 
     # 更新模型配置
     if command in ["update", "up"]:
+        # 如果没有指定模型名，进入交互式选择
         if len(sys.argv) < 3:
-            print("💡 用法: claude-switch update <模型名> [选项]")
-            print("选项:")
-            print("  --name <新名称>        重命名模型")
-            print("  --url <URL>            更新URL")
-            print("  --token <TOKEN>        更新Token")
-            print("\n示例:")
-            print("  claude-switch update model-1                          # 交互式更新所有字段")
-            print("  claude-switch update model-1 --name new-model        # 重命名")
-            print("  claude-switch update model-1 --url https://...       # 快速改URL")
-            print("  claude-switch update model-1 --name new --url https://...  # 同时修改多个")
-            sys.exit(1)
+            name = manager.interactive_select_model("编辑")
+            if name is None:
+                sys.exit(0)
+            # 选择完模型后，直接进入交互式编辑
+            manager.interactive_edit_model(name)
+            sys.exit(0)
 
         name = sys.argv[2]
         base_url = None
@@ -905,18 +975,19 @@ def main():
         print("  claude-switch add <名称> <URL> [TOKEN]")
         print("      添加新模型配置")
         print()
-        print("  claude-switch update <名称> [选项]")
+        print("  claude-switch update [名称] [选项]")
         print("      更新模型配置（可改所有字段）")
         print("      --name <新名称>    重命名模型")
         print("      --url <URL>        修改API地址")
         print("      --token <TOKEN>    修改API令牌")
         print("      示例:")
-        print("        claude-switch update my-model              # 交互式更新")
+        print("        claude-switch update                       # 交互式选择模型后编辑")
+        print("        claude-switch update my-model              # 交互式更新指定模型")
         print("        claude-switch update my-model --name new   # 重命名")
         print("        claude-switch update my-model --url https://api.com")
         print()
-        print("  claude-switch remove <名称>")
-        print("      删除模型配置")
+        print("  claude-switch remove [名称]")
+        print("      删除模型配置（不指定名称时交互式选择）")
         print()
         print("  claude-switch show")
         print("      查看所有配置（Token已脱敏）")
