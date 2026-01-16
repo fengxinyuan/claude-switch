@@ -204,7 +204,7 @@ class EnvManager:
             print(f"❌ 不支持的操作系统: {self.system}")
             sys.exit(1)
 
-    def test_api(self, model_name: str, timeout: int = None, use_warmup: bool = True) -> Tuple[bool, Optional[float]]:
+    def test_api(self, model_name: str, timeout: int = None, use_warmup: bool = True) -> Tuple[bool, Optional[float], Optional[str]]:
         """测试API连接（优化版本，支持热身请求）
 
         Args:
@@ -212,17 +212,17 @@ class EnvManager:
             timeout: 超时时间（秒）
             use_warmup: 是否使用热身请求（提高测速准确性）
 
-        返回: (是否可用, 响应时间)
+        返回: (是否可用, 响应时间, 错误信息)
         """
         if model_name not in self.config:
-            return False, None
+            return False, None, "配置不存在"
 
         config = self.config[model_name]
         base_url = config.get("ANTHROPIC_BASE_URL", "")
         token = config.get("ANTHROPIC_AUTH_TOKEN", "")
 
         if not base_url or not token:
-            return False, None
+            return False, None, "配置不完整"
 
         # 使用实例的超时时间或传入的超时时间
         actual_timeout = timeout or self.timeout
@@ -237,19 +237,26 @@ class EnvManager:
         # 实际测速请求
         try:
             start_time = time.time()
-            self._make_test_request(base_url, token, actual_timeout)
+            success, error_msg = self._make_test_request(base_url, token, actual_timeout)
             response_time = time.time() - start_time
-            return True, response_time
+
+            if success:
+                return True, response_time, None
+            else:
+                return False, None, error_msg
 
         except requests.exceptions.Timeout:
-            return False, None
+            return False, None, "连接超时"
         except requests.exceptions.ConnectionError:
-            return False, None
-        except Exception:
-            return False, None
+            return False, None, "连接失败"
+        except Exception as e:
+            return False, None, f"未知错误: {str(e)}"
 
-    def _make_test_request(self, base_url: str, token: str, timeout: int):
-        """发送测试请求的内部方法"""
+    def _make_test_request(self, base_url: str, token: str, timeout: int) -> Tuple[bool, Optional[str]]:
+        """发送测试请求的内部方法
+
+        返回: (是否成功, 错误信息)
+        """
         test_url = f"{base_url.rstrip('/')}/v1/messages"
         response = requests.post(
             test_url,
@@ -259,7 +266,7 @@ class EnvManager:
                 "content-type": "application/json"
             },
             json={
-                "model": "claude-3-5-sonnet-20241022",
+                "model": "claude-sonnet-4-5-20250929",
                 "max_tokens": 1,
                 "messages": [{"role": "user", "content": "1"}],
                 "stream": True
@@ -268,7 +275,34 @@ class EnvManager:
             verify=False,
             stream=True
         )
+
+        # 检查响应状态
+        if response.status_code != 200:
+            try:
+                # 读取响应内容（流式响应需要先读取）
+                content = response.content.decode('utf-8')
+                error_data = json.loads(content)
+
+                # 尝试多种常见的错误消息路径
+                error_msg = (
+                    error_data.get("error", {}).get("message") or
+                    error_data.get("message") or
+                    error_data.get("error") or
+                    content[:200]  # 如果没有标准字段，显示前200字符
+                )
+            except Exception as e:
+                # 如果JSON解析失败，尝试显示原始内容
+                try:
+                    content = response.content.decode('utf-8')
+                    error_msg = content[:200] if content else f"HTTP {response.status_code}"
+                except:
+                    error_msg = f"HTTP {response.status_code}"
+
+            response.close()
+            return False, error_msg
+
         response.close()
+        return True, None
 
     def get_current_model(self) -> Optional[str]:
         """获取当前使用的模型"""
@@ -305,11 +339,15 @@ class EnvManager:
             print("-" * 60)
 
             for i, model in enumerate(self.config.keys(), 1):
-                status, resp_time = results.get(model, (False, None))
+                status, resp_time, error_msg = results.get(model, (False, None, None))
                 status_icon = "✅" if status else "❌"
                 time_str = f"{resp_time:.2f}s" if resp_time else "N/A"
                 marker = "⭐ 当前" if model == current else ""
                 print(f"{i:<4} {model:<15} {status_icon:<8} {time_str:<10} {marker:<10}")
+
+                # 显示错误信息
+                if not status and error_msg:
+                    print(f"     └─ 错误: {error_msg}")
 
             # 如果需要显示配置信息
             if show_config:
@@ -431,13 +469,17 @@ class EnvManager:
         print("-" * 60)
 
         for i, model in enumerate(models, 1):
-            status, resp_time = results.get(model, (False, None))
+            status, resp_time, error_msg = results.get(model, (False, None, None))
             status_icon = "✅" if status else "❌"
             time_str = f"{resp_time:.2f}s" if resp_time else "N/A"
 
             # 标记当前使用的模型（更醒目）
             marker = "⭐ 当前启用" if model == current and current != "未知" else ""
             print(f"{i:<4} {model:<15} {status_icon:<8} {time_str:<10} {marker:<10}")
+
+            # 显示错误信息
+            if not status and error_msg:
+                print(f"     └─ 错误: {error_msg}")
 
         print("\n" + "-" * 70)
         print("输入序号切换模型，输入 'r' 刷新状态，或输入 'q' 退出")
@@ -781,7 +823,7 @@ class EnvManager:
             print(f"❌ 保存失败: {e}")
             return False
 
-    def test_apis_concurrent(self, models: List[str] = None, show_progress: bool = True) -> Dict[str, Tuple[bool, Optional[float]]]:
+    def test_apis_concurrent(self, models: List[str] = None, show_progress: bool = True) -> Dict[str, Tuple[bool, Optional[float], Optional[str]]]:
         """并发测试多个API"""
         if models is None:
             models = list(self.config.keys())
@@ -793,7 +835,7 @@ class EnvManager:
         if show_progress:
             print_progress_bar(0, total, prefix="🔍 测试进度")
 
-        with ThreadPoolExecutor(max_workers=10) as executor:
+        with ThreadPoolExecutor(max_workers=16) as executor:
             # 提交所有任务
             future_to_model = {
                 executor.submit(self.test_api, model): model
@@ -804,10 +846,10 @@ class EnvManager:
             for future in as_completed(future_to_model):
                 model = future_to_model[future]
                 try:
-                    status, resp_time = future.result()
-                    results[model] = (status, resp_time)
+                    status, resp_time, error_msg = future.result()
+                    results[model] = (status, resp_time, error_msg)
                 except Exception as e:
-                    results[model] = (False, None)
+                    results[model] = (False, None, f"异常: {str(e)}")
 
                 completed += 1
                 if show_progress:
