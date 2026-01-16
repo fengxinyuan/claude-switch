@@ -22,6 +22,27 @@ def mask_sensitive_info(value: str, show_chars: int = 8) -> str:
     return value[:show_chars] + "*" * (len(value) - show_chars)
 
 
+def display_width(text: str) -> int:
+    """计算字符串的实际显示宽度（考虑中文和emoji）"""
+    width = 0
+    for char in text:
+        # ASCII字符宽度为1
+        if ord(char) < 128:
+            width += 1
+        # emoji和中文等宽字符宽度为2
+        else:
+            width += 2
+    return width
+
+
+def pad_to_width(text: str, target_width: int) -> str:
+    """填充字符串到指定显示宽度"""
+    current_width = display_width(text)
+    if current_width >= target_width:
+        return text
+    return text + ' ' * (target_width - current_width)
+
+
 def print_progress_bar(current: int, total: int, prefix: str = "", length: int = 30):
     """打印进度条"""
     percent = current / total
@@ -204,13 +225,13 @@ class EnvManager:
             print(f"❌ 不支持的操作系统: {self.system}")
             sys.exit(1)
 
-    def test_api(self, model_name: str, timeout: int = None, use_warmup: bool = True) -> Tuple[bool, Optional[float], Optional[str]]:
-        """测试API连接（优化版本，支持热身请求）
+    def test_api(self, model_name: str, timeout: int = None, use_warmup: bool = False) -> Tuple[bool, Optional[float], Optional[str]]:
+        """测试API连接（优化版本）
 
         Args:
             model_name: 模型名称
             timeout: 超时时间（秒）
-            use_warmup: 是否使用热身请求（提高测速准确性）
+            use_warmup: 是否使用热身请求（已废弃，保留参数兼容性）
 
         返回: (是否可用, 响应时间, 错误信息)
         """
@@ -226,13 +247,6 @@ class EnvManager:
 
         # 使用实例的超时时间或传入的超时时间
         actual_timeout = timeout or self.timeout
-
-        # 热身请求（绕过首包惩罚，复用连接池）
-        if use_warmup:
-            try:
-                self._make_test_request(base_url, token, actual_timeout)
-            except:
-                pass  # 热身请求失败不影响后续测试
 
         # 实际测速请求
         try:
@@ -253,56 +267,79 @@ class EnvManager:
             return False, None, f"未知错误: {str(e)}"
 
     def _make_test_request(self, base_url: str, token: str, timeout: int) -> Tuple[bool, Optional[str]]:
-        """发送测试请求的内部方法
+        """发送测试请求的内部方法（模拟真实使用场景）
 
         返回: (是否成功, 错误信息)
         """
         test_url = f"{base_url.rstrip('/')}/v1/messages"
-        response = requests.post(
-            test_url,
-            headers={
-                "x-api-key": token,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json"
-            },
-            json={
-                "model": "claude-sonnet-4-5-20250929",
-                "max_tokens": 1,
-                "messages": [{"role": "user", "content": "1"}],
-                "stream": True
-            },
-            timeout=timeout,
-            verify=False,
-            stream=True
-        )
 
-        # 检查响应状态
-        if response.status_code != 200:
-            try:
-                # 读取响应内容（流式响应需要先读取）
-                content = response.content.decode('utf-8')
-                error_data = json.loads(content)
+        try:
+            response = requests.post(
+                test_url,
+                headers={
+                    "x-api-key": token,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                },
+                json={
+                    "model": "claude-sonnet-4-5-20250929",  # 使用Sonnet 4.5
+                    "max_tokens": 16,  # 增加到16，更接近实际使用
+                    "messages": [{"role": "user", "content": "Hi"}],
+                    "stream": True
+                },
+                timeout=timeout,
+                verify=False,
+                stream=True
+            )
 
-                # 尝试多种常见的错误消息路径
-                error_msg = (
-                    error_data.get("error", {}).get("message") or
-                    error_data.get("message") or
-                    error_data.get("error") or
-                    content[:200]  # 如果没有标准字段，显示前200字符
-                )
-            except Exception as e:
-                # 如果JSON解析失败，尝试显示原始内容
+            # 检查响应状态
+            if response.status_code != 200:
                 try:
+                    # 读取响应内容（流式响应需要先读取）
                     content = response.content.decode('utf-8')
-                    error_msg = content[:200] if content else f"HTTP {response.status_code}"
-                except:
-                    error_msg = f"HTTP {response.status_code}"
+                    error_data = json.loads(content)
+
+                    # 尝试多种常见的错误消息路径
+                    error_msg = (
+                        error_data.get("error", {}).get("message") or
+                        error_data.get("message") or
+                        error_data.get("error") or
+                        content[:200]  # 如果没有标准字段，显示前200字符
+                    )
+                except Exception as e:
+                    # 如果JSON解析失败，尝试显示原始内容
+                    try:
+                        content = response.content.decode('utf-8')
+                        error_msg = content[:200] if content else f"HTTP {response.status_code}"
+                    except:
+                        error_msg = f"HTTP {response.status_code}"
+
+                response.close()
+                return False, error_msg
+
+            # 读取流式响应的前几个chunk，确保连接真实可用
+            chunk_count = 0
+            max_chunks = 3  # 只读取前3个chunk
+            try:
+                for line in response.iter_lines():
+                    if line:
+                        chunk_count += 1
+                        if chunk_count >= max_chunks:
+                            break
+            except Exception as e:
+                response.close()
+                return False, f"读取响应失败: {str(e)}"
 
             response.close()
-            return False, error_msg
 
-        response.close()
-        return True, None
+            # 确保至少收到了一些数据
+            if chunk_count == 0:
+                return False, "未收到响应数据"
+
+            return True, None
+
+        except requests.exceptions.RequestException as e:
+            raise  # 让外层处理超时和连接错误
 
     def get_current_model(self) -> Optional[str]:
         """获取当前使用的模型"""
@@ -335,19 +372,33 @@ class EnvManager:
             # 使用并发测试
             results = self.test_apis_concurrent(show_progress=True)
 
-            print(f"\n{'序号':<4} {'模型名':<15} {'状态':<8} {'响应时间':<10} {'标记':<10}")
-            print("-" * 60)
+            # 打印表头（使用自定义宽度对齐）
+            print()
+            header = f"{pad_to_width('序号', 4)} {pad_to_width('模型名', 20)} {pad_to_width('状态', 8)} {pad_to_width('响应时间', 12)} 说明"
+            print(header)
+            print("-" * 90)
 
             for i, model in enumerate(self.config.keys(), 1):
                 status, resp_time, error_msg = results.get(model, (False, None, None))
                 status_icon = "✅" if status else "❌"
                 time_str = f"{resp_time:.2f}s" if resp_time else "N/A"
-                marker = "⭐ 当前" if model == current else ""
-                print(f"{i:<4} {model:<15} {status_icon:<8} {time_str:<10} {marker:<10}")
 
-                # 显示错误信息
-                if not status and error_msg:
-                    print(f"     └─ 错误: {error_msg}")
+                # 准备说明信息
+                if model == current:
+                    info = "⭐ 当前"
+                elif not status and error_msg:
+                    # 截断过长的错误信息
+                    info = error_msg if len(error_msg) <= 38 else error_msg[:35] + "..."
+                else:
+                    info = ""
+
+                # 使用自定义宽度对齐
+                num_str = pad_to_width(str(i), 4)
+                model_str = pad_to_width(model, 20)
+                status_str = pad_to_width(status_icon, 8)
+                time_str_padded = pad_to_width(time_str, 12)
+
+                print(f"{num_str} {model_str} {status_str} {time_str_padded} {info}")
 
             # 如果需要显示配置信息
             if show_config:
@@ -465,21 +516,33 @@ class EnvManager:
         models = list(self.config.keys())
         results = self.test_apis_concurrent(models, show_progress=True)
 
-        print(f"\n{'序号':<4} {'模型名':<15} {'状态':<8} {'响应时间':<10} {'标记':<10}")
-        print("-" * 60)
+        # 打印表头（使用自定义宽度对齐）
+        print()
+        header = f"{pad_to_width('序号', 4)} {pad_to_width('模型名', 20)} {pad_to_width('状态', 8)} {pad_to_width('响应时间', 12)} 说明"
+        print(header)
+        print("-" * 90)
 
         for i, model in enumerate(models, 1):
             status, resp_time, error_msg = results.get(model, (False, None, None))
             status_icon = "✅" if status else "❌"
             time_str = f"{resp_time:.2f}s" if resp_time else "N/A"
 
-            # 标记当前使用的模型（更醒目）
-            marker = "⭐ 当前启用" if model == current and current != "未知" else ""
-            print(f"{i:<4} {model:<15} {status_icon:<8} {time_str:<10} {marker:<10}")
+            # 准备说明信息
+            if model == current and current != "未知":
+                info = "⭐ 当前启用"
+            elif not status and error_msg:
+                # 截断过长的错误信息
+                info = error_msg if len(error_msg) <= 38 else error_msg[:35] + "..."
+            else:
+                info = ""
 
-            # 显示错误信息
-            if not status and error_msg:
-                print(f"     └─ 错误: {error_msg}")
+            # 使用自定义宽度对齐
+            num_str = pad_to_width(str(i), 4)
+            model_str = pad_to_width(model, 20)
+            status_str = pad_to_width(status_icon, 8)
+            time_str_padded = pad_to_width(time_str, 12)
+
+            print(f"{num_str} {model_str} {status_str} {time_str_padded} {info}")
 
         print("\n" + "-" * 70)
         print("输入序号切换模型，输入 'r' 刷新状态，或输入 'q' 退出")
@@ -551,6 +614,21 @@ class EnvManager:
 
         self._save_config()
         print(f"✅ 模型 '{name}' 配置已更新")
+
+        # 检查是否更新了当前使用的模型，自动重载
+        current = self.get_current_model()
+        if name == current:
+            print(f"\n💡 检测到更新了当前使用的模型，正在自动重载...")
+            # 更新shell配置文件和当前进程环境变量
+            self.set_env_variables(self.config[name], silent=True)
+            if self.system in ["Linux", "Darwin"]:
+                try:
+                    # 更新当前进程的环境变量
+                    for key, value in self.config[name].items():
+                        os.environ[key] = value
+                    print(f"✅ 环境变量已更新")
+                except Exception as e:
+                    print(f"⚠️ 警告：{e}")
 
     def remove_model(self, name: str):
         """删除模型配置"""
@@ -818,13 +896,29 @@ class EnvManager:
 
             self._save_config()
             print(f"✅ 配置已保存")
+
+            # 检查是否更新了当前使用的模型，自动重载
+            current = self.get_current_model()
+            if name == current:
+                print(f"\n💡 检测到更新了当前使用的模型，正在自动重载...")
+                # 更新shell配置文件和当前进程环境变量
+                self.set_env_variables(self.config[name], silent=True)
+                if self.system in ["Linux", "Darwin"]:
+                    try:
+                        # 更新当前进程的环境变量
+                        for key, value in self.config[name].items():
+                            os.environ[key] = value
+                        print(f"✅ 环境变量已更新")
+                    except Exception as e:
+                        print(f"⚠️ 警告：{e}")
+
             return True
         except Exception as e:
             print(f"❌ 保存失败: {e}")
             return False
 
     def test_apis_concurrent(self, models: List[str] = None, show_progress: bool = True) -> Dict[str, Tuple[bool, Optional[float], Optional[str]]]:
-        """并发测试多个API"""
+        """并发测试多个API（带速率限制，避免触发API限流）"""
         if models is None:
             models = list(self.config.keys())
 
@@ -835,7 +929,10 @@ class EnvManager:
         if show_progress:
             print_progress_bar(0, total, prefix="🔍 测试进度")
 
-        with ThreadPoolExecutor(max_workers=16) as executor:
+        # 降低并发数，避免触发API限流
+        max_workers = min(4, len(models))
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # 提交所有任务
             future_to_model = {
                 executor.submit(self.test_api, model): model
@@ -854,6 +951,10 @@ class EnvManager:
                 completed += 1
                 if show_progress:
                     print_progress_bar(completed, total, prefix="🔍 测试进度")
+
+                # 添加小延迟，避免触发API限流（最后一个不需要延迟）
+                if completed < total:
+                    time.sleep(0.3)
 
         return results
 
@@ -898,11 +999,13 @@ def main():
 
             # 测试当前模型状态
             print()
-            status, resp_time = manager.test_api(current)
+            status, resp_time, error_msg = manager.test_api(current)
             if status:
                 print(f"连接状态: ✅ 可用 (响应时间: {resp_time:.2f}s)")
             else:
                 print(f"连接状态: ❌ 不可用")
+                if error_msg:
+                    print(f"错误信息: {error_msg}")
                 print(f"\n💡 正在检测其他可用模型...")
                 manager.list_models(show_status=True)
         else:

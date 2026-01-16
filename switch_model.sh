@@ -43,8 +43,10 @@ if [ $EXIT_CODE -eq 0 ] && [ -n "$SHELL_CONFIG" ]; then
     # 提取并导出 ANTHROPIC 环境变量（使用最新的两行）
     eval "$(grep -E '^export (ANTHROPIC_BASE_URL|ANTHROPIC_AUTH_TOKEN)=' "$SHELL_CONFIG" | tail -2)"
 
-    # 检查环境变量是否发生了变化
-    if [ "$OLD_BASE_URL" != "$ANTHROPIC_BASE_URL" ] || [ "$OLD_TOKEN" != "$ANTHROPIC_AUTH_TOKEN" ]; then
+    # 检查环境变量是否发生了变化（或者是update/edit命令）
+    COMMAND="${1:-}"
+    if [ "$OLD_BASE_URL" != "$ANTHROPIC_BASE_URL" ] || [ "$OLD_TOKEN" != "$ANTHROPIC_AUTH_TOKEN" ] ||
+       [ "$COMMAND" = "update" ] || [ "$COMMAND" = "up" ]; then
         if [ -n "$ANTHROPIC_BASE_URL" ]; then
             echo ""
             echo "✅ 环境变量已在当前会话中生效"
