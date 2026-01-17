@@ -600,6 +600,10 @@ class EnvManager:
             print(f"提示: 使用 'add' 命令添加新模型")
             return
 
+        # 在修改配置之前先检查是否是当前模型
+        current = self.get_current_model()
+        is_current_model = (name == current)
+
         if base_url:
             self.config[name]["ANTHROPIC_BASE_URL"] = base_url
             print(f"✅ 已更新 BASE_URL")
@@ -616,8 +620,7 @@ class EnvManager:
         print(f"✅ 模型 '{name}' 配置已更新")
 
         # 检查是否更新了当前使用的模型，自动重载
-        current = self.get_current_model()
-        if name == current:
+        if is_current_model:
             print(f"\n💡 检测到更新了当前使用的模型，正在自动重载...")
             # 更新shell配置文件和当前进程环境变量
             self.set_env_variables(self.config[name], silent=True)
@@ -887,6 +890,10 @@ class EnvManager:
     def _apply_model_changes(self, name: str, changes: dict) -> bool:
         """应用模型配置变更"""
         try:
+            # 在修改配置之前先检查是否是当前模型
+            current = self.get_current_model()
+            is_current_model = (name == current)
+
             for key, value in changes.items():
                 self.config[name][key] = value
                 if key == "ANTHROPIC_BASE_URL":
@@ -898,8 +905,7 @@ class EnvManager:
             print(f"✅ 配置已保存")
 
             # 检查是否更新了当前使用的模型，自动重载
-            current = self.get_current_model()
-            if name == current:
+            if is_current_model:
                 print(f"\n💡 检测到更新了当前使用的模型，正在自动重载...")
                 # 更新shell配置文件和当前进程环境变量
                 self.set_env_variables(self.config[name], silent=True)
