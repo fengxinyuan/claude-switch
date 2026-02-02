@@ -5,6 +5,7 @@ import os
 import platform
 import re
 import time
+import random
 import requests
 import urllib3
 from pathlib import Path
@@ -58,7 +59,7 @@ class EnvManager:
     """环境变量管理器"""
 
     # 默认超时时间（秒）
-    DEFAULT_TIMEOUT = 5
+    DEFAULT_TIMEOUT = 8
 
     # 全局配置目录
     DEFAULT_CONFIG_DIR = os.path.expanduser("~/.config/claude-switch")
@@ -251,7 +252,7 @@ class EnvManager:
         # 实际测速请求
         try:
             start_time = time.time()
-            success, error_msg = self._make_test_request(base_url, token, actual_timeout)
+            success, error_msg = self._make_test_request(base_url, token, actual_timeout, config)
             response_time = time.time() - start_time
 
             if success:
@@ -266,25 +267,61 @@ class EnvManager:
         except Exception as e:
             return False, None, f"未知错误: {str(e)}"
 
-    def _make_test_request(self, base_url: str, token: str, timeout: int) -> Tuple[bool, Optional[str]]:
+    def _make_test_request(self, base_url: str, token: str, timeout: int, model_config: Dict = None) -> Tuple[bool, Optional[str]]:
         """发送测试请求的内部方法（模拟真实使用场景）
 
         返回: (是否成功, 错误信息)
         """
         test_url = f"{base_url.rstrip('/')}/v1/messages"
 
+        # 模拟真实开发者查询的测试消息池（避免敏感词，看起来像真实问题）
+        test_messages = [
+            [{"role": "user", "content": "What's Python?"}],
+            [{"role": "user", "content": "Explain REST API"}],
+            [{"role": "user", "content": "JSON format basics"}],
+            [{"role": "user", "content": "Git diff command"}],
+            [{"role": "user", "content": "HTTP status codes"}],
+            [{"role": "user", "content": "Define variable"}],
+            [{"role": "user", "content": "List methods in Python"}],
+            [{"role": "user", "content": "SQL select syntax"}],
+            [{"role": "user", "content": "What is a function?"}],
+            [{"role": "user", "content": "CSS flexbox"}],
+            [{"role": "user", "content": "JavaScript array methods"}],
+            [{"role": "user", "content": "Docker basic commands"}],
+        ]
+
+        # 真实的浏览器User-Agent池
+        user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+        ]
+
+        # 随机选择消息和User-Agent
+        messages = random.choice(test_messages)
+        user_agent = random.choice(user_agents)
+
+        # 从配置中获取自定义模型名称，如果没有则使用默认值
+        model_name = model_config.get("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929") if model_config else "claude-sonnet-4-5-20250929"
+
         try:
+            # 添加微小随机延迟，避免瞬时大量请求
+            time.sleep(random.uniform(0.1, 0.3))
+
             response = requests.post(
                 test_url,
                 headers={
                     "x-api-key": token,
                     "anthropic-version": "2023-06-01",
-                    "content-type": "application/json"
+                    "content-type": "application/json",
+                    "user-agent": user_agent,
+                    "accept": "application/json",
                 },
                 json={
-                    "model": "claude-sonnet-4-5-20250929",  # 使用Sonnet 4.5
-                    "max_tokens": 16,  # 增加到16，更接近实际使用
-                    "messages": [{"role": "user", "content": "Hi"}],
+                    "model": model_name,
+                    "max_tokens": 3,
+                    "messages": messages,
                     "stream": True
                 },
                 timeout=timeout,
@@ -426,6 +463,47 @@ class EnvManager:
             sys.exit(1)
 
         print(f"🔄 切换到：{model_name}")
+
+        # 核心变量（必须保留）
+        core_vars = {"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"}
+
+        # 收集所有模型配置中的变量名
+        all_config_vars = set()
+        for model_config in self.config.values():
+            all_config_vars.update(model_config.keys())
+
+        # 清除旧模型配置中的变量（除了核心变量和新模型的变量）
+        if self.system in ["Linux", "Darwin"]:
+            shell_config = self._get_shell_config()
+            if os.path.exists(shell_config):
+                with open(shell_config, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+
+                # 识别需要删除的行
+                new_lines = []
+                vars_removed = []
+
+                for line in lines:
+                    # 检查是否是配置文件中的变量
+                    match = re.match(r'^\s*export\s+(\w+)\s*=', line)
+                    if match:
+                        var_name = match.group(1)
+                        # 只删除：是配置中的变量 且 不是核心变量 且 不在新模型配置中
+                        if (var_name in all_config_vars and
+                            var_name not in core_vars and
+                            var_name not in self.config[model_name]):
+                            vars_removed.append(var_name)
+                            continue  # 跳过这一行（删除）
+                    new_lines.append(line)
+
+                # 如果有变量需要删除，写回文件
+                if vars_removed:
+                    with open(shell_config, 'w', encoding='utf-8') as f:
+                        f.writelines(new_lines)
+                    # 清除当前进程的环境变量
+                    for var in vars_removed:
+                        if var in os.environ:
+                            del os.environ[var]
 
         # 静默模式设置环境变量（不输出冗余信息）
         self.set_env_variables(self.config[model_name], silent=True)
@@ -935,8 +1013,8 @@ class EnvManager:
         if show_progress:
             print_progress_bar(0, total, prefix="🔍 测试进度")
 
-        # 降低并发数，避免触发API限流
-        max_workers = min(4, len(models))
+        # 并发测试
+        max_workers = min(10, len(models))
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # 提交所有任务
@@ -960,7 +1038,7 @@ class EnvManager:
 
                 # 添加小延迟，避免触发API限流（最后一个不需要延迟）
                 if completed < total:
-                    time.sleep(0.3)
+                    time.sleep(0.2)
 
         return results
 

@@ -110,9 +110,18 @@ claude-switch show
   "模型名称": {
     "ANTHROPIC_BASE_URL": "https://api.example.com",
     "ANTHROPIC_AUTH_TOKEN": "sk-your-token-here"
+  },
+  "自定义模型": {
+    "ANTHROPIC_BASE_URL": "https://api.example.com",
+    "ANTHROPIC_AUTH_TOKEN": "sk-your-token-here",
+    "ANTHROPIC_MODEL": "custom-model-name",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "custom-model-name",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "custom-model-name"
   }
 }
 ```
+
+**支持自定义模型配置**：可以添加 `ANTHROPIC_MODEL`、`ANTHROPIC_DEFAULT_OPUS_MODEL` 等自定义配置，切换时会自动应用，切换到其他模型时会自动清理。
 
 **查看配置路径**:
 ```bash
@@ -155,11 +164,33 @@ claude-switch config
 
 **A**: 直接运行 `claude-switch`（无参数）进入交互模式，会显示所有模型的实时状态、响应时间，并可以选择切换
 
+### Q: 如何使用自定义模型名称？
+
+**A**: 编辑配置文件 `~/.config/claude-switch/config.json`，添加自定义模型配置：
+```json
+{
+  "MyAPI": {
+    "ANTHROPIC_BASE_URL": "https://api.example.com",
+    "ANTHROPIC_AUTH_TOKEN": "sk-token",
+    "ANTHROPIC_MODEL": "custom-model-name",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "custom-model-name"
+  }
+}
+```
+切换时会自动应用这些配置，切换到其他模型时会自动清理。
+
+### Q: 测活方式为什么用技术问题？
+
+**A**: 使用真实的开发问题（如 "What's Python?"、"Explain REST API"）模拟真实用户查询，避免被API提供商检测为机器人或滥用。同时配合真实浏览器 User-Agent，更接近正常使用场景。
+
 ## 性能优化
 
 - **并发测试**: 使用多线程（最多 10 并发），速度提升 3-5 倍
-- **热身请求**: 绕过首包惩罚，提高测速准确性
+- **智能测活**: 模拟真实用户请求，使用技术问题作为测试消息，避免被检测为机器人
+- **真实请求头**: 随机使用真实浏览器 User-Agent，降低被识别风险
+- **超时优化**: 8秒超时，平衡准确性和速度
 - **流式 API**: 优先使用流式 API 测试，更快更准确
+- **自动清理**: 切换模型时自动清理旧模型的自定义配置，避免污染
 
 ## 许可证
 
