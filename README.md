@@ -110,18 +110,9 @@ claude-switch show
   "模型名称": {
     "ANTHROPIC_BASE_URL": "https://api.example.com",
     "ANTHROPIC_AUTH_TOKEN": "sk-your-token-here"
-  },
-  "自定义模型": {
-    "ANTHROPIC_BASE_URL": "https://api.example.com",
-    "ANTHROPIC_AUTH_TOKEN": "sk-your-token-here",
-    "ANTHROPIC_MODEL": "custom-model-name",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "custom-model-name",
-    "CLAUDE_CODE_SUBAGENT_MODEL": "custom-model-name"
   }
 }
 ```
-
-**支持自定义模型配置**：可以添加 `ANTHROPIC_MODEL`、`ANTHROPIC_DEFAULT_OPUS_MODEL` 等自定义配置，切换时会自动应用，切换到其他模型时会自动清理。
 
 **查看配置路径**:
 ```bash
@@ -163,21 +154,6 @@ claude-switch config
 ### Q: 如何查看所有模型状态？
 
 **A**: 直接运行 `claude-switch`（无参数）进入交互模式，会显示所有模型的实时状态、响应时间，并可以选择切换
-
-### Q: 如何使用自定义模型名称？
-
-**A**: 编辑配置文件 `~/.config/claude-switch/config.json`，添加自定义模型配置：
-```json
-{
-  "MyAPI": {
-    "ANTHROPIC_BASE_URL": "https://api.example.com",
-    "ANTHROPIC_AUTH_TOKEN": "sk-token",
-    "ANTHROPIC_MODEL": "custom-model-name",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "custom-model-name"
-  }
-}
-```
-切换时会自动应用这些配置，切换到其他模型时会自动清理。
 
 ### Q: 测活方式为什么用技术问题？
 

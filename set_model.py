@@ -11,6 +11,7 @@ import urllib3
 from pathlib import Path
 from typing import Dict, Optional, Tuple, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import OrderedDict
 
 # 禁用SSL警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -110,7 +111,7 @@ class EnvManager:
 
         try:
             with config_file.open("r", encoding="utf-8") as f:
-                return json.load(f)
+                return json.load(f, object_pairs_hook=OrderedDict)
         except json.JSONDecodeError as e:
             print(f"❌ 错误：配置文件格式不正确 - {e}")
             sys.exit(1)
@@ -302,9 +303,6 @@ class EnvManager:
         messages = random.choice(test_messages)
         user_agent = random.choice(user_agents)
 
-        # 从配置中获取自定义模型名称，如果没有则使用默认值
-        model_name = model_config.get("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929") if model_config else "claude-sonnet-4-5-20250929"
-
         try:
             # 添加微小随机延迟，避免瞬时大量请求
             time.sleep(random.uniform(0.1, 0.3))
@@ -319,7 +317,7 @@ class EnvManager:
                     "accept": "application/json",
                 },
                 json={
-                    "model": model_name,
+                    "model": "claude-sonnet-4-5-20250929",
                     "max_tokens": 3,
                     "messages": messages,
                     "stream": True
